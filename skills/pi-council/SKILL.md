@@ -10,7 +10,7 @@ license: MIT
 
 # pi-council
 
-Spawns different AI models in parallel. Each model is its own pi coding agent with
+Spawns multi-model AI agents in parallel. Each model is its own pi coding agent with
 tools (bash, read). They work independently and write results to disk.
 
 ## Pi extension (recommended)

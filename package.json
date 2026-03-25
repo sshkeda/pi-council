@@ -1,7 +1,9 @@
 {
   "name": "pi-council",
   "version": "0.1.0",
-  "description": "Spawn different AI models in parallel via pi to get independent opinions",
+  "description": "Multi-model AI council — spawn Claude, GPT, Gemini, and Grok as parallel coding agents to get independent opinions. CLI + pi extension.",
+  "author": "sshkeda",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "pi-council": "./bin/pi-council.js"
@@ -15,13 +17,34 @@
     "README.md",
     "LICENSE"
   ],
-  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sshkeda/pi-council"
+    "url": "git+https://github.com/sshkeda/pi-council.git"
   },
-  "homepage": "https://github.com/sshkeda/pi-council",
-  "keywords": ["pi-package"],
+  "homepage": "https://github.com/sshkeda/pi-council#readme",
+  "bugs": {
+    "url": "https://github.com/sshkeda/pi-council/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "ai-council",
+    "multi-model",
+    "multi-model-ai",
+    "parallel-agents",
+    "ai-agents",
+    "coding-agent",
+    "orchestration",
+    "agent-orchestration",
+    "llm",
+    "claude",
+    "gpt",
+    "gemini",
+    "grok",
+    "multi-agent",
+    "spawn-council",
+    "cli",
+    "developer-tools"
+  ],
   "pi": {
     "skills": ["./skills"],
     "extensions": ["./extensions"]

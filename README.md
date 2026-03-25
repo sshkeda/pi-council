@@ -1,21 +1,36 @@
-# pi-council
+# pi-council — Multi-Model AI Council for Parallel Agent Opinions
 
-Spawn different AI models in parallel to get independent opinions. Powered by [pi](https://github.com/badlogic/pi-mono).
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+
+> Spawn Claude, GPT, Gemini, and Grok as independent coding agents to get parallel opinions on architecture decisions, code review, investment analysis, and more. Powered by [pi](https://github.com/badlogic/pi-mono).
 
 ## Why
 
 One model can be wrong. Different models are wrong about different things. The point isn't consensus — it's surfacing **disagreement** so you (or your orchestrator) can make a better decision.
 
+## Use Cases
+
+- **Architecture decisions** — get 4 independent opinions before committing to microservices vs monolith
+- **Code review** — catch bugs one model misses by running all four in parallel
+- **Investment analysis** — cross-validate trade ideas across Claude, GPT, Gemini, and Grok
+- **Security audits** — surface vulnerabilities with diverse model perspectives
+- **Technical design docs** — stress-test proposals with multi-model critique
+
 ## Install
 
+Via pi (recommended):
+
 ```bash
-npm install -g pi-council
+pi install git+https://github.com/sshkeda/pi-council.git
 ```
 
-Or via pi:
+Or link locally:
 
 ```bash
-pi install npm:pi-council
+git clone https://github.com/sshkeda/pi-council.git
+cd pi-council
+npm install && npm run build && npm link
 ```
 
 Requires [pi](https://github.com/badlogic/pi-mono) and configured API keys for the models you want to use.
@@ -56,7 +71,8 @@ pi-council spawn "Analyze whether MSFT is oversold"
 pi-council watch    # streams results as each agent finishes
 pi-council status   # quick check on progress
 pi-council results  # wait for all and print
-pi-council cleanup  # kill + remove
+pi-council cancel   # kill workers, keep files for inspection
+pi-council cleanup  # kill workers and delete run
 ```
 
 ### Select specific models
@@ -71,7 +87,7 @@ pi-council ask --models claude,grok "Review this PR for security issues"
 pi-council list
 ```
 
-## Default models
+## Default Models
 
 | ID | Provider | Model |
 |----|----------|-------|
@@ -82,7 +98,7 @@ pi-council list
 
 Configure in `~/.pi-council/config.json` (auto-created on first run with defaults).
 
-## How it works
+## How It Works
 
 - Each model runs as a **separate pi coding agent** with its own tools (bash, read)
 - Agents do their own independent research — they are NOT given the same evidence
@@ -96,7 +112,7 @@ Configure in `~/.pi-council/config.json` (auto-created on first run with default
 
 pi-council includes a skill file at `skills/pi-council/SKILL.md` that teaches any pi agent how and when to use the tool. When installed as a pi package, the skill is auto-discovered — no manual setup needed.
 
-## Two interfaces, same artifacts
+## Two Interfaces, Same Artifacts
 
 | Interface | For | How |
 |-----------|-----|-----|
@@ -118,10 +134,10 @@ Both write to the same `~/.pi-council/runs/` directory.
 | `cleanup [run-id]` | Kill workers and delete run |
 | `list` | Show all runs |
 
-## Zero dependencies
+## Dependencies
 
 The CLI has zero npm runtime dependencies — just Node.js built-ins. The pi extension uses pi's built-in packages as peer dependencies.
 
 ## License
 
-MIT
+MIT © [sshkeda](https://github.com/sshkeda)

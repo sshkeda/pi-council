@@ -15,7 +15,8 @@
   ],
   "keywords": ["pi-package"],
   "pi": {
-    "skills": ["./skills"]
+    "skills": ["./skills"],
+    "extensions": ["./extensions"]
   },
   "engines": {
     "node": ">=22"

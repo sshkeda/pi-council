@@ -124,6 +124,9 @@ export default function (pi: ExtensionAPI) {
 
       const { runId, runDir } = createRun(params.question, models, ctx.cwd);
 
+      // Use config timeout (default 300s) — prevents agents from running forever
+      const timeoutMs = config.timeout_seconds > 0 ? config.timeout_seconds * 1000 : 0;
+
       const results: AgentResult[] = models.map((m) => ({
         id: m.id,
         model: m.model,
@@ -178,6 +181,7 @@ export default function (pi: ExtensionAPI) {
       function deliverResults(): void {
         if (delivered || !isInteractive || runState.cancelled) return;
         delivered = true;
+        if (timeoutTimer) clearTimeout(timeoutTimer);
         cleanup();
         const summary = buildSummary();
         writeArtifacts(summary);
@@ -195,6 +199,7 @@ export default function (pi: ExtensionAPI) {
       if (signal) {
         signal.addEventListener("abort", () => {
           runState.cancelled = true;
+          if (timeoutTimer) clearTimeout(timeoutTimer);
           for (const child of children) {
             try { child.kill("SIGTERM"); } catch { /* ESRCH: already exited */ }
           }
@@ -258,6 +263,43 @@ export default function (pi: ExtensionAPI) {
         child.on("close", (code) => handleFinish(code, undefined));
       }
 
+      // Enforce max timeout — kill stragglers so councils don't run forever
+      let timeoutTimer: NodeJS.Timeout | undefined;
+      if (timeoutMs > 0) {
+        timeoutTimer = setTimeout(() => {
+          if (runState.cancelled || finishedCount === models.length) return;
+          runState.cancelled = true;
+          for (const child of children) {
+            try { child.kill("SIGTERM"); } catch { /* already exited */ }
+          }
+          // Mark unfinished agents
+          for (let j = 0; j < models.length; j++) {
+            if (!results[j].finished) {
+              results[j].finished = true;
+              results[j].exitCode = 124; // timeout exit code
+              results[j].output = `(timed out after ${config.timeout_seconds}s)`;
+              try { fs.writeFileSync(agentPaths(runDir, models[j].id).done, "124"); } catch {}
+            }
+          }
+          cleanup();
+          // Still deliver partial results
+          delivered = true;
+          const summary = buildSummary();
+          writeArtifacts(summary);
+          if (isInteractive) {
+            pi.sendMessage(
+              {
+                customType: "council-result",
+                content: `🏛️ Council results (⏰ timed out after ${config.timeout_seconds}s):\n\n${summary}`,
+                display: true,
+              },
+              { deliverAs: "followUp", triggerTurn: true },
+            );
+          }
+        }, timeoutMs);
+        timeoutTimer.unref();
+      }
+
       const modelNames = models.map((m) => m.id).join(", ");
 
       // Non-interactive: block until done
@@ -279,6 +321,7 @@ export default function (pi: ExtensionAPI) {
           }
         });
 
+        if (timeoutTimer) clearTimeout(timeoutTimer);
         cleanup();
         const summary = buildSummary();
         writeArtifacts(summary);

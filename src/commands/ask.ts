@@ -93,12 +93,15 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
 
   process.stderr.write(`\n🏛️  Council running (${models.length} models, run: ${runId})\n\n`);
 
+  // Use explicit --timeout flag, or fall back to config default (300s)
+  const effectiveTimeout = opts.timeout ?? config.timeout_seconds;
+
   let timer: NodeJS.Timeout | undefined;
   try {
-    if (opts.timeout && opts.timeout > 0) {
+    if (effectiveTimeout > 0) {
       timer = setTimeout(() => {
-        terminateRemaining(`⏰ Timeout (${opts.timeout}s) — killing remaining agents`, 124);
-      }, opts.timeout * 1000);
+        terminateRemaining(`⏰ Timeout (${effectiveTimeout}s) — killing remaining agents`, 124);
+      }, effectiveTimeout * 1000);
       timer.unref();
     }
 

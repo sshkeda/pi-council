@@ -1,20 +1,28 @@
 # Autoresearch Ideas
 
-## Pre-council observations (manual scan)
-- **18+ empty catch blocks** — swallowed errors make debugging impossible
-- **`any` type** in stream-parser.ts line 41 — should be typed
-- **Sync file I/O everywhere** (readFileSync/writeFileSync) — blocks event loop during parsing
-- **No input validation** on JSONL parsing — malformed files silently ignored
-- **No timeout on `ask` command** — hangs forever if an agent stalls
-- **fs.watch + setInterval polling** in results.ts/watch.ts — potential resource leak if promise rejects
-- **No graceful SIGINT handling** — Ctrl+C during `ask` leaves orphaned agent processes
-- **stream-parser reads entire file into memory** — could be problematic with large JSONL streams
-- **No tests** — zero test coverage
-- **`killPid` uses busy-wait with Atomics.wait** — unusual pattern, could use setTimeout
-- **Extension duplicates some spawn logic** vs shared core — potential for drift
-- **No config validation** — malformed config.json silently falls back to defaults
-- **`list` command** re-parses all JSONL streams just to show status — expensive for many runs
+## Fixed (done)
+- ~~`child.pid` undefined crash~~ — guard + throw
+- ~~`killPid` busy-wait with Atomics~~ — async setTimeout
+- ~~NO_COLOR / stderr color detection~~ — checks both streams + NO_COLOR env
+- ~~Extension ignores AbortSignal~~ — wired up signal.abort
+- ~~Cancel council spams chat~~ — cancelled flag guard
+- ~~Config validation~~ — type checks on all fields
+- ~~fs.watch reparse storm~~ — isAgentDone fast-path
+- ~~list reparses all JSONL~~ — uses results.json for completed runs
+- ~~resolveModels error swallowed~~ — surfaces actual error
+- ~~activeRuns leak in extension~~ — cleanup in all paths
+- ~~Code duplication ask/spawn/extension~~ — createRun() helper
+- ~~Partial text treated as success~~ — uses exit code from .done file
+- ~~CLI arg parser broken with flags first~~ — proper two-pass parsing
+- ~~Process group kill danger~~ — direct PID kill only + isPiProcess guard
+- ~~No tests~~ — 40 unit tests for parser, config, pid, run-state, run-id
+- ~~No timeout~~ — config.timeout_seconds (default 300s), --timeout CLI flag, extension timeout
 
-## Council suggestions (to be filled after council runs)
-
-- **`npm test` emits `node:test run() is being called recursively` warning** — likely test runner/tsx invocation mismatch; cleanup would improve CI signal
+## Remaining ideas
+- **Extension imports fragile ../../src/ paths** — works but fragile if restructured
+- **Prompt passed as CLI arg** — visible via `ps aux`, could use stdin/file instead
+- **fs.watch unreliable on some platforms** — interval fallback exists but fs.watch is primary
+- **stream-parser reads entire file into memory** — fine for now, could use incremental parsing for huge streams
+- **watch/results double-resolve race** — add boolean guard in done()
+- **Extension non-interactive polls instead of using child events** — minor latency
+- **No graceful disk-full handling** — try/catch with clear error messages

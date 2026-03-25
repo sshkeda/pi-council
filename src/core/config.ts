@@ -13,6 +13,8 @@ export interface Config {
   models: ModelSpec[];
   tools: string;
   stall_seconds: number;
+  /** Max seconds per council run. 0 = no timeout. Default: 300 (5 min). */
+  timeout_seconds: number;
   system_prompt: string;
 }
 
@@ -38,6 +40,7 @@ const DEFAULT_CONFIG: Config = {
   models: DEFAULT_MODELS,
   tools: "bash,read",
   stall_seconds: 60,
+  timeout_seconds: 300,
   system_prompt: DEFAULT_SYSTEM_PROMPT,
 };
 
@@ -79,6 +82,7 @@ export function loadConfig(): Config {
       models: validateModels(raw.models) ?? DEFAULT_CONFIG.models,
       tools: typeof raw.tools === "string" ? raw.tools : DEFAULT_CONFIG.tools,
       stall_seconds: typeof raw.stall_seconds === "number" && raw.stall_seconds > 0 ? raw.stall_seconds : DEFAULT_CONFIG.stall_seconds,
+      timeout_seconds: typeof raw.timeout_seconds === "number" && raw.timeout_seconds >= 0 ? raw.timeout_seconds : DEFAULT_CONFIG.timeout_seconds,
       system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
   } catch {

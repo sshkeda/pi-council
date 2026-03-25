@@ -6,14 +6,11 @@ import { spawnWorker, agentPaths } from "../core/runner.js";
 import { generateRunId } from "../util/run-id.js";
 import { type RunMeta } from "../core/run-state.js";
 import { results } from "./results.js";
-import { green, yellow, bold, dim } from "../util/format.js";
-
-const DEFAULT_TIMEOUT_SECONDS = 30;
+import { green, yellow, bold } from "../util/format.js";
 
 export interface AskOptions {
   models?: string[];
   cwd?: string;
-  timeout?: number;
 }
 
 export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> {
@@ -40,60 +37,37 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
   fs.writeFileSync(getLatestFile(), runId);
 
   // Spawn workers WITHOUT detaching — keep handles for instant close detection
-  const children: Array<{ id: string; child: ChildProcess }> = [];
   const finished = new Set<string>();
+  const promises: Promise<void>[] = [];
 
   for (const model of models) {
     const { pid, child } = spawnWorker(runDir, model, prompt, config, opts.cwd, false);
     process.stderr.write(`  🚀 ${model.id.padEnd(8)} spawned (PID ${pid}, ${model.model})\n`);
-    children.push({ id: model.id, child });
 
     const paths = agentPaths(runDir, model.id);
 
-    child.on("close", (code) => {
-      finished.add(model.id);
-      try { fs.writeFileSync(paths.done, String(code ?? "")); } catch {}
-      process.stderr.write(`  ${code === 0 ? green("✅") : yellow("⚠️")}  ${bold(model.id.padEnd(8))} finished (${finished.size}/${models.length})\n`);
-    });
-
-    child.on("error", () => {
-      finished.add(model.id);
-      try { fs.writeFileSync(paths.done, "1"); } catch {}
-    });
+    promises.push(
+      new Promise<void>((resolve) => {
+        child.on("close", (code) => {
+          finished.add(model.id);
+          try { fs.writeFileSync(paths.done, String(code ?? "")); } catch {}
+          process.stderr.write(`  ${code === 0 ? green("✅") : yellow("⚠️")}  ${bold(model.id.padEnd(8))} finished (${finished.size}/${models.length})\n`);
+          resolve();
+        });
+        child.on("error", () => {
+          finished.add(model.id);
+          try { fs.writeFileSync(paths.done, "1"); } catch {}
+          resolve();
+        });
+      }),
+    );
   }
 
-  const timeout = opts.timeout ?? DEFAULT_TIMEOUT_SECONDS;
-  process.stderr.write(`\n🏛️  Council running (${models.length} models, run: ${runId}, ${timeout}s timeout)\n\n`);
+  process.stderr.write(`\n🏛️  Council running (${models.length} models, run: ${runId})\n\n`);
 
-  // Wait for all to finish OR timeout
-  await new Promise<void>((resolve) => {
-    // Check completion on every close event
-    const check = () => {
-      if (finished.size === models.length) {
-        clearTimeout(timer);
-        resolve();
-      }
-    };
-    for (const { child } of children) {
-      child.on("close", check);
-    }
+  // Wait for all agents — no timeout, agents handle their own limits
+  await Promise.allSettled(promises);
 
-    // Timeout
-    const timer = setTimeout(() => {
-      process.stderr.write(yellow(`\n⏳ Timeout after ${timeout}s.\n`));
-
-      // Detach still-running children so this process can exit
-      for (const { id, child } of children) {
-        if (!finished.has(id)) {
-          child.unref();
-          process.stderr.write(dim(`   ${id} still running — detached (use: pi-council watch ${runId})\n`));
-        }
-      }
-      process.stderr.write("\n");
-      resolve();
-    }, timeout * 1000);
-  });
-
-  // Print whatever results exist
+  // Print results
   await results(runId, false);
 }

@@ -65,12 +65,6 @@ pi-council cleanup  # kill + remove
 pi-council ask --models claude,grok "Review this PR for security issues"
 ```
 
-### Custom timeout
-
-```bash
-pi-council ask --timeout 120 "Deep architecture review of this codebase"
-```
-
 ### List all runs
 
 ```bash
@@ -96,7 +90,7 @@ Configure in `~/.pi-council/config.json`.
 - **Pi extension**: returns immediately, auto-notifies via `followUp` when done
 - **CLI `ask`**: waits via `child.on('close')` — zero polling
 - **CLI `watch`**: uses `fs.watch` — event-driven, prints each result the instant it lands
-- 30s default timeout kicks out so the orchestrator can check for haywire agents
+- No timeout — agents handle their own limits natively
 
 ## Two interfaces, same artifacts
 

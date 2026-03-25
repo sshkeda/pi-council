@@ -8,14 +8,13 @@ import { ask } from "./commands/ask.js";
 import { list } from "./commands/list.js";
 import { watch } from "./commands/watch.js";
 
-function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; timeout?: number; prompt: string } {
+function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; prompt: string } {
   const args = argv.slice(2);
   const command = args[0] ?? "help";
 
   let models: string[] | undefined;
   let cwd: string | undefined;
   let runId: string | undefined;
-  let timeout: number | undefined;
   const rest: string[] = [];
 
   let i = 1;
@@ -25,9 +24,6 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
       i += 2;
     } else if (args[i] === "--cwd" && i + 1 < args.length) {
       cwd = args[i + 1];
-      i += 2;
-    } else if (args[i] === "--timeout" && i + 1 < args.length) {
-      timeout = parseInt(args[i + 1], 10);
       i += 2;
     } else {
       rest.push(args[i]);
@@ -41,7 +37,7 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
     runId = rest[0];
   }
 
-  return { command, runId, models, cwd, timeout, prompt };
+  return { command, runId, models, cwd, prompt };
 }
 
 function printHelp(): void {
@@ -60,24 +56,22 @@ Commands:
 Flags:
   --models claude,gpt,grok    Select which models to run (default: all)
   --cwd /path                  Working directory for agents
-  --timeout 30                 Seconds before auto-returning (default: 30)
 
 Examples:
   pi-council ask "Should I refactor this module?"
   pi-council spawn --models claude,grok "Analyze MSFT"
-  pi-council status
-  pi-council results
+  pi-council watch
   pi-council cleanup
 `);
 }
 
 async function main(): Promise<void> {
-  const { command, runId, models, cwd, timeout, prompt } = parseArgs(process.argv);
+  const { command, runId, models, cwd, prompt } = parseArgs(process.argv);
 
   switch (command) {
     case "ask":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      await ask(prompt, { models, cwd, timeout });
+      await ask(prompt, { models, cwd });
       break;
     case "spawn":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
@@ -90,7 +84,7 @@ async function main(): Promise<void> {
       await results(runId);
       break;
     case "watch":
-      await watch(runId, timeout);
+      await watch(runId);
       break;
     case "cleanup":
       cleanup(runId);

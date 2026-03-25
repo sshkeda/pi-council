@@ -128,6 +128,7 @@ export default function (pi: ExtensionAPI) {
       }));
 
       let finishedCount = 0;
+      let delivered = false;
       const children: import("node:child_process").ChildProcess[] = [];
       activeRuns.set(runId, { children, runDir });
 
@@ -162,6 +163,8 @@ export default function (pi: ExtensionAPI) {
       }
 
       function deliverResults(): void {
+        if (delivered || !isInteractive) return; // guard: don't deliver twice or in non-interactive mode
+        delivered = true;
         activeRuns.delete(runId);
         const summary = buildSummary();
         writeArtifacts(summary);
@@ -182,28 +185,20 @@ export default function (pi: ExtensionAPI) {
         const { child } = spawnWorker(runDir, m, params.question, config, ctx.cwd, false);
         children.push(child);
 
-        child.on("error", (err) => {
-          results[i].exitCode = 1;
+        const handleFinish = (code: number | null, error?: string) => {
+          if (results[i].finished) return; // guard: error+close can both fire
           results[i].finished = true;
-          results[i].output = `spawn error: ${err.message}`;
-          try { fs.writeFileSync(agentPaths(runDir, m.id).done, "1"); } catch {}
-          finishedCount++;
-          if (finishedCount === models.length) {
-            ctx.ui.setStatus("council", undefined);
-            deliverResults();
+          results[i].exitCode = code;
+
+          if (error) {
+            results[i].output = error;
+          } else {
+            const paths = agentPaths(runDir, m.id);
+            const parsed = parseStream(paths.stream);
+            results[i].output = parsed.finalText || parsed.assistantText;
           }
-        });
 
-        child.on("close", (code) => {
-          const r = results[i];
-          r.exitCode = code;
-          r.finished = true;
-
-          const paths = agentPaths(runDir, m.id);
-          const parsed = parseStream(paths.stream);
-          r.output = parsed.finalText || parsed.assistantText;
-
-          try { fs.writeFileSync(paths.done, String(code ?? "")); } catch {}
+          try { fs.writeFileSync(agentPaths(runDir, m.id).done, String(code ?? "")); } catch {}
 
           finishedCount++;
           ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${models.length} done`);
@@ -212,7 +207,10 @@ export default function (pi: ExtensionAPI) {
             ctx.ui.setStatus("council", undefined);
             deliverResults();
           }
-        });
+        };
+
+        child.on("error", (err) => handleFinish(1, `spawn error: ${err.message}`));
+        child.on("close", (code) => handleFinish(code, undefined));
       }
 
       const modelNames = models.map((m) => m.id).join(", ");

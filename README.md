@@ -114,12 +114,13 @@ Both write to the same `~/.pi-council/runs/` directory.
 | `status [run-id]` | Show who's running, who's done |
 | `results [run-id]` | Wait for completion and print outputs |
 | `watch [run-id]` | Stream results as each agent finishes |
-| `cleanup [run-id]` | Kill workers and remove run |
+| `cancel [run-id]` | Kill workers, keep files for inspection |
+| `cleanup [run-id]` | Kill workers and delete run |
 | `list` | Show all runs |
 
 ## Zero dependencies
 
-The runtime has zero npm dependencies. Just Node.js built-ins.
+The CLI has zero npm runtime dependencies — just Node.js built-ins. The pi extension uses pi's built-in packages as peer dependencies.
 
 ## License
 

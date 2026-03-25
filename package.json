@@ -9,6 +9,7 @@
   "files": [
     "bin",
     "dist",
+    "src",
     "skills",
     "extensions",
     "README.md",
@@ -30,7 +31,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "tsc",
+    "prepublishOnly": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts"
   },
   "peerDependencies": {

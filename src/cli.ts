@@ -34,7 +34,7 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
 
   // For status/results/cleanup/watch, first positional arg might be a run-id (looks like YYYYMMDD-...)
   const prompt = rest.join(" ");
-  if (["status", "results", "cleanup", "watch"].includes(command) && rest.length > 0 && /^\d{8}-/.test(rest[0])) {
+  if (["status", "results", "cleanup", "cancel", "watch"].includes(command) && rest.length > 0 && /^\d{8}-/.test(rest[0])) {
     runId = rest[0];
   }
 

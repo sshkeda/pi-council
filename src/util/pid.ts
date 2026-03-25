@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 export function pidAlive(pid: number): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -20,7 +20,7 @@ export function isPiProcess(pid: number): boolean {
   if (!pidAlive(pid)) return false;
   try {
     // Use ps to get the command — works on macOS and Linux
-    const output = execSync(`ps -p ${pid} -o comm= 2>/dev/null`, { encoding: "utf-8", timeout: 2000 }).trim();
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf-8", timeout: 2000 }).trim();
     // The pi agent runs as node/pi/tsx — check for common names
     return /\b(pi|node|tsx|bun|deno)\b/i.test(output);
   } catch {

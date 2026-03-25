@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getRunsDir, getLatestFile, type ModelSpec } from "./config.js";
+import { agentPaths } from "./runner.js";
+import { killPid } from "../util/pid.js";
 import { generateRunId } from "../util/run-id.js";
 import type { RunMeta } from "./run-state.js";
 

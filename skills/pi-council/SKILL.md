@@ -33,7 +33,7 @@ Use spawn_council to get opinions on whether to refactor this module
 
 Also available as a CLI for any agent with bash access:
 
-### One-shot (blocks until done, 30s timeout)
+### One-shot (blocks until done)
 ```bash
 pi-council ask "Should I refactor this module into microservices?"
 ```

@@ -8,10 +8,15 @@ export function pidAlive(pid: number): boolean {
 }
 
 export function killPid(pid: number): void {
+  // Try killing the process group first (catches child processes like bash)
   try {
-    process.kill(pid, "SIGTERM");
+    process.kill(-pid, "SIGTERM");
   } catch {
-    return; // already dead
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      return; // already dead
+    }
   }
   // Synchronous wait then SIGKILL if still alive
   const start = Date.now();

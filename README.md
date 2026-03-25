@@ -42,7 +42,7 @@ Use spawn_council to get opinions on this architecture decision
 
 Also works as a plain CLI — any agent with bash access can use it.
 
-### One-shot (blocks until done, 30s timeout)
+### One-shot (blocks until done)
 
 ```bash
 pi-council ask "Should I refactor this module into microservices?"

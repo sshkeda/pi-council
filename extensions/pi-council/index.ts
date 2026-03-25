@@ -141,6 +141,35 @@ export default function (pi: ExtensionAPI) {
 
       let finishedCount = 0;
 
+      function deliverResults() {
+        const summary = results
+          .map((r) => {
+            const icon = r.exitCode === 0 ? "✅" : "❌";
+            return `## ${icon} ${r.id.toUpperCase()} (${r.model})\n\n${r.output || "(no output)"}`;
+          })
+          .join("\n\n---\n\n");
+
+        try {
+          fs.writeFileSync(path.join(runDir, "results.md"), `# Council Results\n\n${summary}`);
+          fs.writeFileSync(
+            path.join(runDir, "results.json"),
+            JSON.stringify({ runId, results: results.map((r) => ({ id: r.id, model: r.model, output: r.output, exitCode: r.exitCode })) }, null, 2),
+          );
+        } catch {}
+
+        pi.sendMessage(
+          {
+            customType: "council-result",
+            content: `🏛️ Council results for: "${params.question}"\n\n${summary}`,
+            display: true,
+          },
+          {
+            deliverAs: "followUp",
+            triggerTurn: true,
+          },
+        );
+      }
+
       for (let i = 0; i < models.length; i++) {
         const m = models[i];
         const streamPath = path.join(runDir, `${m.id}.jsonl`);
@@ -175,6 +204,19 @@ export default function (pi: ExtensionAPI) {
         const pidPath = path.join(runDir, `${m.id}.pid`);
         fs.writeFileSync(pidPath, String(child.pid ?? ""));
 
+        child.on("error", (err) => {
+          const r = results[i];
+          r.exitCode = 1;
+          r.finished = true;
+          r.output = `spawn error: ${err.message}`;
+          try { fs.writeFileSync(path.join(runDir, `${m.id}.done`), "1"); } catch {}
+          finishedCount++;
+          if (finishedCount === models.length) {
+            ctx.ui.setStatus("council", undefined);
+            deliverResults();
+          }
+        });
+
         child.on("close", (code) => {
           const r = results[i];
           r.exitCode = code;
@@ -194,34 +236,7 @@ export default function (pi: ExtensionAPI) {
           // All finished — push results to the LLM
           if (finishedCount === models.length) {
             ctx.ui.setStatus("council", undefined);
-
-            const summary = results
-              .map((r) => {
-                const icon = r.exitCode === 0 ? "✅" : "❌";
-                return `## ${icon} ${r.id.toUpperCase()} (${r.model})\n\n${r.output || "(no output)"}`;
-              })
-              .join("\n\n---\n\n");
-
-            // Write results to disk too
-            try {
-              fs.writeFileSync(path.join(runDir, "results.md"), `# Council Results\n\n${summary}`);
-              fs.writeFileSync(
-                path.join(runDir, "results.json"),
-                JSON.stringify({ runId, results: results.map((r) => ({ id: r.id, model: r.model, output: r.output, exitCode: r.exitCode })) }, null, 2),
-              );
-            } catch {}
-
-            pi.sendMessage(
-              {
-                customType: "council-result",
-                content: `🏛️ Council results for: "${params.question}"\n\n${summary}`,
-                display: true,
-              },
-              {
-                deliverAs: "followUp",
-                triggerTurn: true,
-              },
-            );
+            deliverResults();
           }
         });
       }
@@ -231,15 +246,12 @@ export default function (pi: ExtensionAPI) {
       // In non-interactive mode, wait for all agents to finish before returning
       if (!isInteractive) {
         await new Promise<void>((resolve) => {
-          const check = () => {
-            if (finishedCount === models.length) resolve();
-          };
-          // Poll finishedCount — children are attached so close events fire
           const interval = setInterval(() => {
-            check();
-            if (finishedCount === models.length) clearInterval(interval);
+            if (finishedCount === models.length) {
+              clearInterval(interval);
+              resolve();
+            }
           }, 500);
-          check();
         });
 
         const summary = results

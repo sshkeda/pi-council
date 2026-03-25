@@ -24,6 +24,46 @@ interface AgentResult {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Track active councils so we can cancel them
+  const activeRuns = new Map<string, { children: import("node:child_process").ChildProcess[]; runDir: string }>();
+
+  pi.registerTool({
+    name: "cancel_council",
+    label: "Cancel Council",
+    description: "Cancel a running council by run ID, or cancel the most recent one.",
+    promptSnippet: "Cancel a running council.",
+    parameters: Type.Object({
+      runId: Type.Optional(Type.String({ description: "Run ID to cancel. Omit to cancel the most recent." })),
+    }),
+    async execute(_toolCallId, params) {
+      let targetId = params.runId;
+
+      if (!targetId) {
+        // Cancel most recent
+        const keys = [...activeRuns.keys()];
+        if (keys.length === 0) {
+          return { content: [{ type: "text", text: "No active councils to cancel." }], details: {} };
+        }
+        targetId = keys[keys.length - 1];
+      }
+
+      const run = activeRuns.get(targetId);
+      if (!run) {
+        return { content: [{ type: "text", text: `No active council with ID: ${targetId}` }], details: {} };
+      }
+
+      for (const child of run.children) {
+        try { child.kill("SIGTERM"); } catch {}
+      }
+      activeRuns.delete(targetId);
+
+      return {
+        content: [{ type: "text", text: `Cancelled council: ${targetId}` }],
+        details: {},
+      };
+    },
+  });
+
   pi.registerTool({
     name: "spawn_council",
     label: "Spawn Council",
@@ -88,6 +128,8 @@ export default function (pi: ExtensionAPI) {
       }));
 
       let finishedCount = 0;
+      const children: import("node:child_process").ChildProcess[] = [];
+      activeRuns.set(runId, { children, runDir });
 
       function buildSummary(): string {
         return results
@@ -120,6 +162,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       function deliverResults(): void {
+        activeRuns.delete(runId);
         const summary = buildSummary();
         writeArtifacts(summary);
         pi.sendMessage(
@@ -137,6 +180,7 @@ export default function (pi: ExtensionAPI) {
 
         // Use shared spawnWorker — detach=false so close events fire in-process
         const { child } = spawnWorker(runDir, m, params.question, config, ctx.cwd, false);
+        children.push(child);
 
         child.on("error", (err) => {
           results[i].exitCode = 1;

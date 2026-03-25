@@ -6,6 +6,36 @@ import { agentPaths } from "../core/runner.js";
 import { killPid } from "../util/pid.js";
 import { resolveRunId } from "./status.js";
 
+/** Kill workers but keep files for inspection */
+export function cancel(runId?: string): void {
+  const resolved = resolveRunId(runId);
+  const runDir = path.join(getRunsDir(), resolved);
+  const meta = loadMeta(runDir);
+
+  if (!meta) {
+    process.stderr.write(`No run found: ${resolved}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  for (const agent of meta.agents) {
+    const paths = agentPaths(runDir, agent.id);
+    if (fs.existsSync(paths.pid)) {
+      try {
+        const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
+        killPid(pid);
+      } catch {}
+    }
+    // Write .done so status/results can read partial output
+    if (!fs.existsSync(paths.done)) {
+      try { fs.writeFileSync(paths.done, "cancelled"); } catch {}
+    }
+  }
+
+  process.stderr.write(`Cancelled: ${resolved} (files kept — use status/results to inspect)\n`);
+}
+
+/** Kill workers AND delete run directory */
 export function cleanup(runId?: string): void {
   const resolved = resolveRunId(runId);
   const runDir = path.join(getRunsDir(), resolved);
@@ -17,27 +47,20 @@ export function cleanup(runId?: string): void {
     return;
   }
 
-  // Kill all workers synchronously
   for (const agent of meta.agents) {
     const paths = agentPaths(runDir, agent.id);
     if (fs.existsSync(paths.pid)) {
       try {
         const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
-        killPid(pid); // synchronous kill with SIGKILL fallback
-      } catch {
-        // ignore
-      }
+        killPid(pid);
+      } catch {}
     }
   }
 
-  // Remove run dir
   try {
     fs.rmSync(runDir, { recursive: true, force: true });
-  } catch {
-    // ignore
-  }
+  } catch {}
 
-  // Update latest if it pointed here
   const latestFile = getLatestFile();
   if (fs.existsSync(latestFile)) {
     const latest = fs.readFileSync(latestFile, "utf-8").trim();

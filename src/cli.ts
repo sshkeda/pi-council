@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import { spawn } from "./commands/spawn.js";
 import { status } from "./commands/status.js";
 import { results } from "./commands/results.js";
-import { cleanup } from "./commands/cleanup.js";
+import { cancel, cleanup } from "./commands/cleanup.js";
 import { ask } from "./commands/ask.js";
 import { list } from "./commands/list.js";
 import { watch } from "./commands/watch.js";
@@ -51,7 +51,8 @@ Commands:
   status [run-id]             Show who's running, who's done
   results [run-id]            Wait for completion and print outputs
   watch [run-id]              Stream results as each agent finishes
-  cleanup [run-id]            Kill workers and remove run
+  cancel [run-id]             Kill workers, keep files for inspection
+  cleanup [run-id]            Kill workers and delete run
   list                        Show all runs
 
 Flags:
@@ -86,6 +87,9 @@ async function main(): Promise<void> {
       break;
     case "watch":
       await watch(runId);
+      break;
+    case "cancel":
+      cancel(runId);
       break;
     case "cleanup":
       cleanup(runId);

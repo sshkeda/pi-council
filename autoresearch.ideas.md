@@ -16,3 +16,5 @@
 - **`list` command** re-parses all JSONL streams just to show status — expensive for many runs
 
 ## Council suggestions (to be filled after council runs)
+
+- **`npm test` emits `node:test run() is being called recursively` warning** — likely test runner/tsx invocation mismatch; cleanup would improve CI signal

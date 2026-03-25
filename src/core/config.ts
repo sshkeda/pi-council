@@ -82,6 +82,8 @@ export function loadConfig(): Config {
       system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
   } catch {
+    // Corrupted config.json — fall back to defaults silently.
+    // This is intentional: users shouldn't need to debug JSON parsing errors on startup.
     return { ...DEFAULT_CONFIG };
   }
 }

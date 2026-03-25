@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
 import { loadMeta, refreshWorker, isAgentDone, type RunMeta } from "../core/run-state.js";
-import { agentPaths } from "../core/runner.js";
 import { resolveRunId } from "./status.js";
 import { bold, green, red, dim } from "../util/format.js";
 
@@ -34,9 +33,12 @@ export async function watch(runId?: string): Promise<void> {
   process.stderr.write(dim(`Watching ${remaining.size} remaining agent(s)...\n\n`));
 
   return new Promise<void>((resolve) => {
+    let watcher: fs.FSWatcher | null = null;
+    let pidCheck: ReturnType<typeof setInterval> | null = null;
+
     const done = () => {
-      watcher.close();
-      clearInterval(pidCheck);
+      if (watcher) { watcher.close(); watcher = null; }
+      if (pidCheck) { clearInterval(pidCheck); pidCheck = null; }
       process.removeListener("SIGINT", onSigint);
       resolve();
     };
@@ -44,12 +46,25 @@ export async function watch(runId?: string): Promise<void> {
     const onSigint = () => { done(); };
     process.on("SIGINT", onSigint);
 
-    const watcher = fs.watch(runDir, () => {
-      checkAndPrint(runDir, meta, config.stall_seconds, remaining);
-      if (remaining.size === 0) done();
-    });
+    try {
+      watcher = fs.watch(runDir, () => {
+        checkAndPrint(runDir, meta, config.stall_seconds, remaining);
+        if (remaining.size === 0) done();
+      });
 
-    const pidCheck = setInterval(() => {
+      // Handle watcher errors (e.g., run directory deleted while watching)
+      watcher.on("error", (err) => {
+        process.stderr.write(`⚠️  Watcher error: ${err.message}\n`);
+        done();
+      });
+    } catch (err) {
+      // fs.watch can throw if directory doesn't exist
+      process.stderr.write(`⚠️  Cannot watch directory: ${(err as Error).message}\n`);
+      resolve();
+      return;
+    }
+
+    pidCheck = setInterval(() => {
       checkAndPrint(runDir, meta, config.stall_seconds, remaining);
       if (remaining.size === 0) done();
     }, 2_000);

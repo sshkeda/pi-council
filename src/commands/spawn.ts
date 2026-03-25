@@ -1,9 +1,6 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { loadConfig, resolveModels, getRunsDir, getLatestFile } from "../core/config.js";
+import { loadConfig, resolveModels } from "../core/config.js";
 import { spawnWorker } from "../core/runner.js";
-import { generateRunId } from "../util/run-id.js";
-import type { RunMeta } from "../core/run-state.js";
+import { createRun } from "../core/run-lifecycle.js";
 
 export interface SpawnOptions {
   models?: string[];
@@ -18,31 +15,13 @@ export function spawn(prompt: string, opts: SpawnOptions = {}): string {
     throw new Error("No models selected. Check your config or --models flag.");
   }
 
-  const runId = generateRunId();
-  const runDir = path.join(getRunsDir(), runId);
-  fs.mkdirSync(runDir, { recursive: true });
-
-  // Write prompt
-  fs.writeFileSync(path.join(runDir, "prompt.txt"), prompt);
-
-  // Write meta
-  const meta: RunMeta = {
-    runId,
-    prompt,
-    startedAt: Date.now(),
-    agents: models,
-    cwd: opts.cwd ?? process.cwd(),
-  };
-  fs.writeFileSync(path.join(runDir, "meta.json"), JSON.stringify(meta, null, 2));
+  const { runId, runDir } = createRun(prompt, models, opts.cwd ?? process.cwd());
 
   // Spawn workers (detached for background mode)
   for (const model of models) {
     const { pid } = spawnWorker(runDir, model, prompt, config, opts.cwd, true);
     process.stderr.write(`  🚀 ${model.id.padEnd(8)} spawned (PID ${pid}, ${model.model})\n`);
   }
-
-  // Write latest
-  fs.writeFileSync(getLatestFile(), runId);
 
   process.stderr.write(`\n🏛️  Council spawned (${models.length} models, run: ${runId})\n`);
   process.stderr.write(`   status  : pi-council status ${runId}\n`);

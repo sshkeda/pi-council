@@ -3,41 +3,53 @@ import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
 import { loadMeta, refreshRun, isAgentDone, type WorkerState, type RunMeta } from "../core/run-state.js";
 import { resolveRunId } from "./status.js";
-import { agentPaths } from "../core/runner.js";
 import { dim } from "../util/format.js";
 
-function checkAllDone(runDir: string, meta: RunMeta, _stallSeconds: number): boolean {
+function checkAllDone(runDir: string, meta: RunMeta): boolean {
   // Fast-path: only check .done files and PID liveness — no JSONL parsing
   return meta.agents.every((a) => isAgentDone(runDir, a));
 }
 
-function waitForCompletion(runDir: string, meta: RunMeta, stallSeconds: number): Promise<void> {
-  if (checkAllDone(runDir, meta, stallSeconds)) return Promise.resolve();
+function waitForCompletion(runDir: string, meta: RunMeta): Promise<void> {
+  if (checkAllDone(runDir, meta)) return Promise.resolve();
 
   return new Promise<void>((resolve) => {
-    const watcher = fs.watch(runDir, () => {
-      if (checkAllDone(runDir, meta, stallSeconds)) {
-        watcher.close();
-        clearInterval(pidCheck);
-        resolve();
-      }
-    });
+    let watcher: fs.FSWatcher | null = null;
+    let pidCheck: ReturnType<typeof setInterval> | null = null;
+
+    const finish = () => {
+      if (watcher) { watcher.close(); watcher = null; }
+      if (pidCheck) { clearInterval(pidCheck); pidCheck = null; }
+      process.removeListener("SIGINT", onSigint);
+      resolve();
+    };
+
+    const onSigint = () => { finish(); };
+    process.on("SIGINT", onSigint);
+
+    try {
+      watcher = fs.watch(runDir, () => {
+        if (checkAllDone(runDir, meta)) finish();
+      });
+
+      // Handle watcher errors (e.g., directory deleted while waiting)
+      watcher.on("error", (err) => {
+        process.stderr.write(`⚠️  Watcher error: ${err.message}\n`);
+        finish();
+      });
+    } catch (err) {
+      process.stderr.write(`⚠️  Cannot watch directory: ${(err as Error).message}\n`);
+      resolve();
+      return;
+    }
 
     // PID liveness check every 2s — for background spawn mode
-    const pidCheck = setInterval(() => {
-      if (checkAllDone(runDir, meta, stallSeconds)) {
-        watcher.close();
-        clearInterval(pidCheck);
-        resolve();
-      }
+    pidCheck = setInterval(() => {
+      if (checkAllDone(runDir, meta)) finish();
     }, 2_000);
 
-    // Race-proof
-    if (checkAllDone(runDir, meta, stallSeconds)) {
-      watcher.close();
-      clearInterval(pidCheck);
-      resolve();
-    }
+    // Race-proof: check once more after setting up watchers
+    if (checkAllDone(runDir, meta)) finish();
   });
 }
 
@@ -56,11 +68,11 @@ export async function results(runId?: string, wait = true): Promise<void> {
 
   // Wait for completion via fs.watch + PID checks (event-driven)
   if (wait) {
-    await waitForCompletion(runDir, meta, config.stall_seconds);
+    await waitForCompletion(runDir, meta);
   }
 
   // Print results
-  const states = refreshRun(runDir, meta.agents, config.stall_seconds);
+  const states = await refreshRun(runDir, meta.agents, config.stall_seconds);
 
   let succeeded = 0;
   let failed = 0;

@@ -1,6 +1,10 @@
 /**
- * pi-council extension — registers spawn_council tool.
- * Imports all logic from shared core — zero duplication.
+ * pi-council extension — registers spawn_council and cancel_council tools.
+ *
+ * Imports from shared core via relative paths. This is necessary during development
+ * because TypeScript doesn't resolve self-referencing package exports. When installed
+ * as an npm package, the exports field in package.json provides clean import paths
+ * (e.g., "pi-council/core/config").
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -8,12 +12,11 @@ import { Type } from "@sinclair/typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-// Shared core — single source of truth
-import { loadConfig, resolveModels, getRunsDir, type ModelSpec } from "../../src/core/config.js";
+// Shared core — single source of truth (relative paths required for TS dev, see module docstring)
+import { loadConfig, resolveModels, type ModelSpec } from "../../src/core/config.js";
 import { spawnWorker, agentPaths } from "../../src/core/runner.js";
 import { parseStream } from "../../src/core/stream-parser.js";
-import { generateRunId } from "../../src/util/run-id.js";
-import type { RunMeta } from "../../src/core/run-state.js";
+import { createRun } from "../../src/core/run-lifecycle.js";
 
 interface AgentResult {
   id: string;
@@ -24,7 +27,8 @@ interface AgentResult {
 }
 
 export default function (pi: ExtensionAPI) {
-  // Track active councils so we can cancel them
+  // Track active councils so we can cancel them.
+  // Keyed by runId — entries are removed when the council completes or is cancelled.
   const activeRuns = new Map<string, { children: import("node:child_process").ChildProcess[]; runDir: string; cancelled: boolean }>();
 
   pi.registerTool({
@@ -39,7 +43,7 @@ export default function (pi: ExtensionAPI) {
       let targetId = params.runId;
 
       if (!targetId) {
-        // Cancel most recent
+        // Cancel most recent active council
         const keys = [...activeRuns.keys()];
         if (keys.length === 0) {
           return { content: [{ type: "text", text: "No active councils to cancel." }], details: {} };
@@ -55,7 +59,14 @@ export default function (pi: ExtensionAPI) {
       // Mark as cancelled BEFORE killing so handleFinish won't deliver results
       run.cancelled = true;
       for (const child of run.children) {
-        try { child.kill("SIGTERM"); } catch {}
+        try {
+          child.kill("SIGTERM");
+        } catch (err) {
+          // ESRCH = process already exited — expected race condition, only log unexpected errors
+          if ((err as NodeJS.ErrnoException).code !== "ESRCH") {
+            process.stderr.write(`⚠️  Failed to kill child: ${(err as Error).message}\n`);
+          }
+        }
       }
       activeRuns.delete(targetId);
 
@@ -111,19 +122,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const runId = generateRunId();
-      const runDir = path.join(getRunsDir(), runId);
-      fs.mkdirSync(runDir, { recursive: true });
-      fs.writeFileSync(path.join(runDir, "prompt.txt"), params.question);
-
-      const meta: RunMeta = {
-        runId,
-        prompt: params.question,
-        startedAt: Date.now(),
-        agents: models,
-        cwd: ctx.cwd,
-      };
-      fs.writeFileSync(path.join(runDir, "meta.json"), JSON.stringify(meta, null, 2));
+      const { runId, runDir } = createRun(params.question, models, ctx.cwd);
 
       const results: AgentResult[] = models.map((m) => ({
         id: m.id,
@@ -171,7 +170,9 @@ export default function (pi: ExtensionAPI) {
               })),
             }, null, 2),
           );
-        } catch {}
+        } catch (err) {
+          process.stderr.write(`⚠️  Failed to write council artifacts: ${(err as Error).message}\n`);
+        }
       }
 
       function deliverResults(): void {
@@ -195,7 +196,7 @@ export default function (pi: ExtensionAPI) {
         signal.addEventListener("abort", () => {
           runState.cancelled = true;
           for (const child of children) {
-            try { child.kill("SIGTERM"); } catch {}
+            try { child.kill("SIGTERM"); } catch { /* ESRCH: already exited */ }
           }
           cleanup();
         }, { once: true });
@@ -214,7 +215,7 @@ export default function (pi: ExtensionAPI) {
           results[i].output = `spawn error: ${(err as Error).message}`;
           finishedCount++;
           if (finishedCount === models.length) {
-            ctx.ui.setStatus("council", undefined);
+            cleanup();
             deliverResults();
           }
           continue;
@@ -234,7 +235,11 @@ export default function (pi: ExtensionAPI) {
             results[i].output = parsed.finalText || parsed.assistantText;
           }
 
-          try { fs.writeFileSync(agentPaths(runDir, m.id).done, String(code ?? "")); } catch {}
+          try {
+            fs.writeFileSync(agentPaths(runDir, m.id).done, String(code ?? ""));
+          } catch (err) {
+            process.stderr.write(`⚠️  Failed to write .done for ${m.id}: ${(err as Error).message}\n`);
+          }
 
           finishedCount++;
 

@@ -24,11 +24,17 @@ export function cancel(runId?: string): void {
       try {
         const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
         killPid(pid);
-      } catch {}
+      } catch (err) {
+        process.stderr.write(`  ⚠️  Failed to kill ${agent.id}: ${(err as Error).message}\n`);
+      }
     }
     // Write .done so status/results can read partial output
     if (!fs.existsSync(paths.done)) {
-      try { fs.writeFileSync(paths.done, "cancelled"); } catch {}
+      try {
+        fs.writeFileSync(paths.done, "cancelled");
+      } catch (err) {
+        process.stderr.write(`  ⚠️  Failed to mark ${agent.id} as cancelled: ${(err as Error).message}\n`);
+      }
     }
   }
 
@@ -53,27 +59,35 @@ export function cleanup(runId?: string): void {
       try {
         const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
         killPid(pid);
-      } catch {}
+      } catch (err) {
+        process.stderr.write(`  ⚠️  Failed to kill ${agent.id}: ${(err as Error).message}\n`);
+      }
     }
   }
 
   try {
     fs.rmSync(runDir, { recursive: true, force: true });
-  } catch {}
+  } catch (err) {
+    process.stderr.write(`  ⚠️  Failed to remove run directory: ${(err as Error).message}\n`);
+  }
 
   const latestFile = getLatestFile();
   if (fs.existsSync(latestFile)) {
-    const latest = fs.readFileSync(latestFile, "utf-8").trim();
-    if (latest === resolved) {
-      const runsDir = getRunsDir();
-      const remaining = fs.existsSync(runsDir)
-        ? fs.readdirSync(runsDir).filter((d) => d !== resolved).sort().reverse()
-        : [];
-      if (remaining.length > 0) {
-        fs.writeFileSync(latestFile, remaining[0]);
-      } else {
-        try { fs.unlinkSync(latestFile); } catch {}
+    try {
+      const latest = fs.readFileSync(latestFile, "utf-8").trim();
+      if (latest === resolved) {
+        const runsDir = getRunsDir();
+        const remaining = fs.existsSync(runsDir)
+          ? fs.readdirSync(runsDir).filter((d) => d !== resolved).sort().reverse()
+          : [];
+        if (remaining.length > 0) {
+          fs.writeFileSync(latestFile, remaining[0]);
+        } else {
+          fs.unlinkSync(latestFile);
+        }
       }
+    } catch (err) {
+      process.stderr.write(`  ⚠️  Failed to update latest-run-id: ${(err as Error).message}\n`);
     }
   }
 

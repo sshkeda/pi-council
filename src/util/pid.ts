@@ -1,25 +1,48 @@
+import { execSync } from "node:child_process";
+
 export function pidAlive(pid: number): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
   } catch {
+    // ESRCH = no such process, EPERM = process exists but we can't signal it.
+    // Both mean "not our process" for practical purposes, so return false.
     return false;
+  }
+}
+
+/**
+ * Check if a PID belongs to a pi agent process.
+ * Guards against killing unrelated processes if the PID was recycled.
+ */
+export function isPiProcess(pid: number): boolean {
+  if (!pidAlive(pid)) return false;
+  try {
+    // Use ps to get the command — works on macOS and Linux
+    const output = execSync(`ps -p ${pid} -o comm= 2>/dev/null`, { encoding: "utf-8", timeout: 2000 }).trim();
+    // The pi agent runs as node/pi/tsx — check for common names
+    return /\b(pi|node|tsx|bun|deno)\b/i.test(output);
+  } catch {
+    // ps failed (e.g., process exited between pidAlive and ps) —
+    // be conservative and assume it's valid to avoid leaving orphans
+    return true;
   }
 }
 
 export function killPid(pid: number): void {
   if (!Number.isFinite(pid) || pid <= 0) return;
 
-  // Try killing the process group first (catches child processes like bash)
+  // Safety check: verify this is still a pi-related process before killing.
+  // If the PID was recycled, this prevents killing unrelated processes.
+  if (!isPiProcess(pid)) {
+    return;
+  }
+
   try {
-    process.kill(-pid, "SIGTERM");
+    process.kill(pid, "SIGTERM");
   } catch {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      return; // already dead
-    }
+    return; // Process already exited between isPiProcess check and kill — nothing to do
   }
 
   // Check if dead immediately
@@ -31,7 +54,7 @@ export function killPid(pid: number): void {
       try {
         process.kill(pid, "SIGKILL");
       } catch {
-        // already dead
+        // Process exited between check and SIGKILL — expected race, nothing to do
       }
     }
   }, 2000).unref();

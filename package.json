@@ -46,8 +46,12 @@
     "developer-tools"
   ],
   "pi": {
-    "skills": ["./skills"],
-    "extensions": ["./extensions"]
+    "skills": [
+      "./skills"
+    ],
+    "extensions": [
+      "./extensions"
+    ]
   },
   "engines": {
     "node": ">=22"
@@ -55,7 +59,8 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "rm -rf dist && tsc",
-    "dev": "node --import tsx src/cli.ts"
+    "dev": "node --import tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
@@ -69,5 +74,16 @@
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
     "@sinclair/typebox": "*"
+  },
+  "exports": {
+    ".": "./dist/src/cli.js",
+    "./core/config": "./dist/src/core/config.js",
+    "./core/runner": "./dist/src/core/runner.js",
+    "./core/stream-parser": "./dist/src/core/stream-parser.js",
+    "./core/run-lifecycle": "./dist/src/core/run-lifecycle.js",
+    "./core/run-state": "./dist/src/core/run-state.js",
+    "./util/pid": "./dist/src/util/pid.js",
+    "./util/format": "./dist/src/util/format.js",
+    "./util/run-id": "./dist/src/util/run-id.js"
   }
 }

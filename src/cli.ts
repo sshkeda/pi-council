@@ -9,27 +9,53 @@ import { ask } from "./commands/ask.js";
 import { list } from "./commands/list.js";
 import { watch } from "./commands/watch.js";
 
-function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; prompt: string } {
+const KNOWN_COMMANDS = new Set(["ask", "spawn", "status", "results", "watch", "cancel", "cleanup", "list", "help", "version"]);
+
+function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; timeout?: number; prompt: string } {
   const args = argv.slice(2);
-  const command = args[0] ?? "help";
 
   let models: string[] | undefined;
   let cwd: string | undefined;
+  let timeout: number | undefined;
   let runId: string | undefined;
+  let command: string | undefined;
   const rest: string[] = [];
 
-  let i = 1;
+  // Two-pass: extract flags first, then identify command and positional args
+  let i = 0;
   while (i < args.length) {
     if (args[i] === "--models" && i + 1 < args.length) {
-      models = args[i + 1].split(",");
+      models = args[i + 1].split(",").filter(Boolean);
       i += 2;
     } else if (args[i] === "--cwd" && i + 1 < args.length) {
       cwd = args[i + 1];
       i += 2;
+    } else if (args[i] === "--timeout" && i + 1 < args.length) {
+      const parsed = parseInt(args[i + 1], 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        timeout = parsed;
+      } else {
+        process.stderr.write(`Warning: invalid --timeout value "${args[i + 1]}", ignoring\n`);
+      }
+      i += 2;
+    } else if (args[i] === "--help" || args[i] === "-h") {
+      command = "help";
+      i++;
+    } else if (args[i] === "--version" || args[i] === "-v") {
+      command = "version";
+      i++;
+    } else if (!command && KNOWN_COMMANDS.has(args[i])) {
+      command = args[i];
+      i++;
     } else {
       rest.push(args[i]);
       i++;
     }
+  }
+
+  // Default to "help" if nothing provided, or implicit "ask" if there's a prompt
+  if (!command) {
+    command = rest.length > 0 ? "ask" : "help";
   }
 
   // For status/results/cleanup/watch, first positional arg might be a run-id (looks like YYYYMMDD-...)
@@ -38,7 +64,7 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
     runId = rest[0];
   }
 
-  return { command, runId, models, cwd, prompt };
+  return { command, runId, models, cwd, timeout, prompt };
 }
 
 function printHelp(): void {
@@ -58,9 +84,11 @@ Commands:
 Flags:
   --models claude,gpt,grok    Select which models to run (default: all)
   --cwd /path                  Working directory for agents
+  --timeout 300                Timeout in seconds for ask command (kills agents)
 
 Examples:
   pi-council ask "Should I refactor this module?"
+  pi-council ask --timeout 120 "Quick code review"
   pi-council spawn --models claude,grok "Analyze MSFT"
   pi-council watch
   pi-council cleanup
@@ -68,19 +96,19 @@ Examples:
 }
 
 async function main(): Promise<void> {
-  const { command, runId, models, cwd, prompt } = parseArgs(process.argv);
+  const { command, runId, models, cwd, timeout, prompt } = parseArgs(process.argv);
 
   switch (command) {
     case "ask":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      await ask(prompt, { models, cwd });
+      await ask(prompt, { models, cwd, timeout });
       break;
     case "spawn":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
       spawn(prompt, { models, cwd });
       break;
     case "status":
-      status(runId);
+      await status(runId);
       break;
     case "results":
       await results(runId);
@@ -95,29 +123,19 @@ async function main(): Promise<void> {
       cleanup(runId);
       break;
     case "list":
-      list();
+      await list();
       break;
     case "help":
-    case "--help":
-    case "-h":
       printHelp();
       break;
-    case "version":
-    case "--version":
-    case "-v": {
+    case "version": {
       const pkgPath = new URL("../../package.json", import.meta.url);
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
       process.stdout.write(pkg.version + "\n");
       break;
     }
     default:
-      // Treat everything as an implicit ask
-      const fullPrompt = [command, prompt].filter(Boolean).join(" ");
-      if (fullPrompt.trim()) {
-        await ask(fullPrompt, { models, cwd });
-      } else {
-        printHelp();
-      }
+      printHelp();
   }
 }
 

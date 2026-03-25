@@ -1,5 +1,11 @@
 import * as fs from "node:fs";
 
+/** Maximum bytes to read from a JSONL stream file (50 MB). */
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
+/** Maximum length of a single JSONL line in characters. Lines exceeding this are skipped. */
+const MAX_LINE_LENGTH = 1024 * 1024; // 1 MB
+
 export interface ParsedStream {
   assistantText: string;
   finalText: string;
@@ -14,6 +20,33 @@ export interface ParsedStream {
     cacheWrite: number;
     cost: number;
   };
+}
+
+/** Shape of a content part in a pi JSONL message. */
+interface ContentPart {
+  type: string;
+  text?: string;
+}
+
+/** Shape of the message field in pi JSONL events. */
+interface PiMessage {
+  role?: string;
+  content?: ContentPart[];
+  stopReason?: string;
+  errorMessage?: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    cost?: { total?: number };
+  };
+}
+
+/** Shape of a pi JSONL event line. */
+interface PiEvent {
+  type: string;
+  message?: PiMessage;
 }
 
 export function parseStream(filePath: string): ParsedStream {
@@ -31,24 +64,43 @@ export function parseStream(filePath: string): ParsedStream {
 
   let raw: string;
   try {
-    raw = fs.readFileSync(filePath, "utf-8");
+    // Read up to MAX_FILE_BYTES to prevent memory exhaustion on huge streams
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const stat = fs.fstatSync(fd);
+      const bytesToRead = Math.min(stat.size, MAX_FILE_BYTES);
+      const buf = Buffer.alloc(bytesToRead);
+      fs.readSync(fd, buf, 0, bytesToRead, 0);
+      raw = buf.toString("utf-8");
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
+    // File may have been removed between existsSync and open — not actionable
     return result;
   }
 
   for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    let event: Record<string, unknown>;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Skip oversized lines to prevent JSON.parse from consuming unbounded memory
+    if (trimmed.length > MAX_LINE_LENGTH) continue;
+
+    let event: PiEvent;
     try {
-      event = JSON.parse(line) as Record<string, unknown>;
+      event = JSON.parse(trimmed) as PiEvent;
     } catch {
+      // Malformed JSON line — skip (common with partial writes / truncated streams)
       continue;
     }
 
+    // Basic structural validation: must have a type string
+    if (!event || typeof event.type !== "string") continue;
+
     result.events++;
     const type = event.type;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any — pi's JSONL schema is dynamic
-    const msg = (event as any).message;
+    const msg = event.message;
 
     if (type === "message_update") {
       if (msg?.role === "assistant") {

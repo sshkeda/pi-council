@@ -33,8 +33,34 @@ export function loadMeta(runDir: string): RunMeta | null {
   const metaPath = path.join(runDir, "meta.json");
   if (!fs.existsSync(metaPath)) return null;
   try {
-    return JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+    return JSON.parse(fs.readFileSync(metaPath, "utf-8")) as RunMeta;
   } catch {
+    // Corrupted or partially-written meta.json — treat as missing
+    return null;
+  }
+}
+
+/**
+ * Write a .done marker file. Logs to stderr on failure instead of swallowing.
+ */
+function writeDoneMarker(donePath: string, content: string): void {
+  try {
+    fs.writeFileSync(donePath, content);
+  } catch (err) {
+    process.stderr.write(`⚠️  Failed to write .done marker (${donePath}): ${(err as Error).message}\n`);
+  }
+}
+
+/**
+ * Parse a PID from a .pid file. Returns null if file is missing, empty, or contains invalid data.
+ */
+function readPid(pidPath: string): number | null {
+  if (!fs.existsSync(pidPath)) return null;
+  try {
+    const raw = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
+    return Number.isFinite(raw) ? raw : null;
+  } catch {
+    // File may have been removed between existsSync and read — race condition, not actionable
     return null;
   }
 }
@@ -49,17 +75,11 @@ export function isAgentDone(runDir: string, model: ModelSpec): boolean {
   if (fs.existsSync(paths.done)) return true;
 
   // Check PID liveness
-  if (fs.existsSync(paths.pid)) {
-    try {
-      const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
-      if (!Number.isFinite(pid) || !pidAlive(pid)) {
-        // Process exited — mark done (side-effect isolated here)
-        try { fs.writeFileSync(paths.done, ""); } catch {}
-        return true;
-      }
-    } catch {
-      return false;
-    }
+  const pid = readPid(paths.pid);
+  if (pid !== null && !pidAlive(pid)) {
+    // Process exited without writing .done — mark done (side-effect isolated here)
+    writeDoneMarker(paths.done, "");
+    return true;
   }
 
   return false;
@@ -69,34 +89,48 @@ export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: nu
   const paths = agentPaths(runDir, model.id);
   const parsed = parseStream(paths.stream);
 
-  let pid: number | null = null;
-  if (fs.existsSync(paths.pid)) {
-    try {
-      const raw = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
-      pid = Number.isFinite(raw) ? raw : null;
-    } catch {
-      pid = null;
-    }
-  }
-
+  const pid = readPid(paths.pid);
   const isDone = fs.existsSync(paths.done);
   const isAlive = pid !== null && pidAlive(pid);
 
   // Mark done if process exited (isolated side-effect)
   if (!isDone && pid !== null && !isAlive) {
-    try { fs.writeFileSync(paths.done, ""); } catch {}
+    writeDoneMarker(paths.done, "");
+  }
+
+  // Read exit code from .done file to determine success vs failure
+  let exitCode: string | null = null;
+  if (isDone) {
+    try {
+      exitCode = fs.readFileSync(paths.done, "utf-8").trim();
+    } catch {
+      // .done file disappeared between check and read — treat as unknown exit
+      exitCode = null;
+    }
   }
 
   let status: WorkerStatus;
   if (isDone || (!isAlive && pid !== null)) {
-    status = parsed.finalText || parsed.assistantText ? "done" : "failed";
+    // Use exit code when available: "0" = success, anything else = failure
+    // "cancelled" is also treated as failure
+    if (exitCode === "0") {
+      status = "done";
+    } else if (exitCode && exitCode !== "" && exitCode !== "0") {
+      // Explicit non-zero exit code or "cancelled" — failed even if there's partial text
+      status = "failed";
+    } else {
+      // No explicit exit code (empty .done file from PID death detection) — fall back to text check
+      status = parsed.finalText || parsed.assistantText ? "done" : "failed";
+    }
   } else if (isAlive) {
-    // Check stall
+    // Check stall: compare file mtimes against stall_seconds threshold
     let lastMtime = 0;
     for (const p of [paths.stream, paths.err]) {
-      if (fs.existsSync(p)) {
+      try {
         const mtime = fs.statSync(p).mtimeMs;
         if (mtime > lastMtime) lastMtime = mtime;
+      } catch {
+        // File may not exist yet if agent just started — ignore
       }
     }
     const age = (Date.now() - lastMtime) / 1000;
@@ -105,9 +139,14 @@ export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: nu
     status = "failed";
   }
 
-  const errText = fs.existsSync(paths.err)
-    ? fs.readFileSync(paths.err, "utf-8").trim()
-    : "";
+  const errText = (() => {
+    try {
+      return fs.existsSync(paths.err) ? fs.readFileSync(paths.err, "utf-8").trim() : "";
+    } catch {
+      // .err file may have been removed — not critical
+      return "";
+    }
+  })();
 
   const preview = (parsed.assistantText || parsed.finalText || "").replace(/\n/g, " ").slice(0, 120);
 

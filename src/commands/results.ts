@@ -2,11 +2,44 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
 import { loadMeta, refreshRun, type WorkerState } from "../core/run-state.js";
-import { resolveRunId, status } from "./status.js";
-import { bold, dim } from "../util/format.js";
+import { resolveRunId } from "./status.js";
+import { agentPaths } from "../core/runner.js";
+import { dim } from "../util/format.js";
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function waitForCompletion(runDir: string, agentIds: string[]): Promise<void> {
+  // Check if already done
+  const allDone = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
+  if (allDone) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    const watcher = fs.watch(runDir, () => {
+      // On any fs event, check if all .done files exist
+      const done = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
+      if (done) {
+        watcher.close();
+        clearInterval(safety);
+        resolve();
+      }
+    });
+
+    // Safety fallback every 30s in case fs.watch misses events
+    const safety = setInterval(() => {
+      const done = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
+      if (done) {
+        watcher.close();
+        clearInterval(safety);
+        resolve();
+      }
+    }, 30_000);
+
+    // Race-proof: file may appear between initial check and fs.watch setup
+    const done = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
+    if (done) {
+      watcher.close();
+      clearInterval(safety);
+      resolve();
+    }
+  });
 }
 
 export async function results(runId?: string, wait = true): Promise<void> {
@@ -22,19 +55,10 @@ export async function results(runId?: string, wait = true): Promise<void> {
 
   const config = loadConfig();
 
-  // Wait for completion
+  // Wait for completion via fs.watch (event-driven, not polling)
   if (wait) {
-    let allDone = false;
-    while (!allDone) {
-      const states = refreshRun(runDir, meta.agents, config.stall_seconds);
-      allDone = states.every((w) => w.status === "done" || w.status === "failed");
-      if (!allDone) {
-        const running = states.filter((w) => w.status === "running" || w.status === "stalled").length;
-        process.stderr.write(`\r  Waiting... ${states.length - running}/${states.length} done`);
-        await sleep(3000);
-      }
-    }
-    process.stderr.write("\r" + " ".repeat(60) + "\r");
+    const agentIds = meta.agents.map((a) => a.id);
+    await waitForCompletion(runDir, agentIds);
   }
 
   // Print results
@@ -57,7 +81,6 @@ export async function results(runId?: string, wait = true): Promise<void> {
       process.stdout.write(`(no output)\nERROR: ${w.errorMessage ?? "empty output"}\n`);
     }
 
-    // Usage line
     const u = w.usage;
     if (u.cost > 0) {
       process.stdout.write(dim(`  cost: $${u.cost.toFixed(4)} | tokens: ↑${u.input} ↓${u.output}`) + "\n");

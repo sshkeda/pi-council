@@ -6,6 +6,7 @@ import { results } from "./commands/results.js";
 import { cleanup } from "./commands/cleanup.js";
 import { ask } from "./commands/ask.js";
 import { list } from "./commands/list.js";
+import { watch } from "./commands/watch.js";
 
 function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; prompt: string } {
   const args = argv.slice(2);
@@ -48,6 +49,7 @@ Commands:
   spawn "question"            Background: spawn and return run-id
   status [run-id]             Show who's running, who's done
   results [run-id]            Wait for completion and print outputs
+  watch [run-id]              Stream results as each agent finishes
   cleanup [run-id]            Kill workers and remove run
   list                        Show all runs
 
@@ -81,6 +83,9 @@ async function main(): Promise<void> {
       break;
     case "results":
       await results(runId);
+      break;
+    case "watch":
+      await watch(runId);
       break;
     case "cleanup":
       cleanup(runId);

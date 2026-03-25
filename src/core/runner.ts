@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import type { ModelSpec, Config } from "./config.js";
 
 export interface RunPaths {
@@ -8,6 +8,11 @@ export interface RunPaths {
   err: string;
   pid: string;
   done: string;
+}
+
+export interface SpawnResult {
+  pid: number;
+  child: ChildProcess;
 }
 
 export function agentPaths(runDir: string, id: string): RunPaths {
@@ -25,7 +30,8 @@ export function spawnWorker(
   prompt: string,
   config: Config,
   cwd?: string,
-): number {
+  detach = true,
+): SpawnResult {
   const paths = agentPaths(runDir, model.id);
 
   const streamFd = fs.openSync(paths.stream, "w");
@@ -52,10 +58,12 @@ export function spawnWorker(
   const pid = child.pid!;
   fs.writeFileSync(paths.pid, String(pid));
 
-  // Close fds and detach
   fs.closeSync(streamFd);
   fs.closeSync(errFd);
-  child.unref();
 
-  return pid;
+  if (detach) {
+    child.unref();
+  }
+
+  return { pid, child };
 }

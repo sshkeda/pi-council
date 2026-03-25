@@ -38,18 +38,19 @@ export function parseStream(filePath: string): ParsedStream {
 
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
-    let event: any;
+    let event: Record<string, unknown>;
     try {
-      event = JSON.parse(line);
+      event = JSON.parse(line) as Record<string, unknown>;
     } catch {
       continue;
     }
 
     result.events++;
     const type = event.type;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any — pi's JSONL schema is dynamic
+    const msg = (event as any).message;
 
     if (type === "message_update") {
-      const msg = event.message;
       if (msg?.role === "assistant") {
         const texts: string[] = [];
         for (const part of msg.content ?? []) {
@@ -60,7 +61,6 @@ export function parseStream(filePath: string): ParsedStream {
         if (joined) result.assistantText = joined;
       }
     } else if (type === "message_end") {
-      const msg = event.message;
       if (msg?.role === "assistant") {
         const texts: string[] = [];
         for (const part of msg.content ?? []) {

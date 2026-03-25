@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
-import { loadMeta, refreshWorker, type RunMeta } from "../core/run-state.js";
+import { loadMeta, refreshWorker, isAgentDone, type RunMeta } from "../core/run-state.js";
 import { agentPaths } from "../core/runner.js";
 import { resolveRunId } from "./status.js";
 import { bold, green, red, dim } from "../util/format.js";
@@ -37,8 +37,12 @@ export async function watch(runId?: string): Promise<void> {
     const done = () => {
       watcher.close();
       clearInterval(pidCheck);
+      process.removeListener("SIGINT", onSigint);
       resolve();
     };
+
+    const onSigint = () => { done(); };
+    process.on("SIGINT", onSigint);
 
     const watcher = fs.watch(runDir, () => {
       checkAndPrint(runDir, meta, config.stall_seconds, remaining);
@@ -61,6 +65,9 @@ function checkAndPrint(
   for (const id of [...remaining]) {
     const agent = meta.agents.find((a) => a.id === id);
     if (!agent) { remaining.delete(id); continue; }
+
+    // Fast-path: skip expensive JSONL parsing unless the agent is actually done
+    if (!isAgentDone(runDir, agent)) continue;
 
     const w = refreshWorker(runDir, agent, stallSeconds);
 

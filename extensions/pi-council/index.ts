@@ -25,7 +25,7 @@ interface AgentResult {
 
 export default function (pi: ExtensionAPI) {
   // Track active councils so we can cancel them
-  const activeRuns = new Map<string, { children: import("node:child_process").ChildProcess[]; runDir: string }>();
+  const activeRuns = new Map<string, { children: import("node:child_process").ChildProcess[]; runDir: string; cancelled: boolean }>();
 
   pi.registerTool({
     name: "cancel_council",
@@ -52,6 +52,8 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text", text: `No active council with ID: ${targetId}` }], details: {} };
       }
 
+      // Mark as cancelled BEFORE killing so handleFinish won't deliver results
+      run.cancelled = true;
       for (const child of run.children) {
         try { child.kill("SIGTERM"); } catch {}
       }
@@ -87,15 +89,19 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const isInteractive = ctx.hasUI;
       const config = loadConfig();
 
       let models: ModelSpec[];
       try {
         models = resolveModels(config, params.models);
-      } catch {
-        models = [];
+      } catch (err) {
+        // Surface the actual validation error (e.g., "Unknown model(s): xyz. Available: ...")
+        return {
+          content: [{ type: "text", text: (err as Error).message }],
+          details: {},
+        };
       }
 
       if (models.length === 0) {
@@ -130,7 +136,13 @@ export default function (pi: ExtensionAPI) {
       let finishedCount = 0;
       let delivered = false;
       const children: import("node:child_process").ChildProcess[] = [];
-      activeRuns.set(runId, { children, runDir });
+      const runState = { children, runDir, cancelled: false };
+      activeRuns.set(runId, runState);
+
+      function cleanup(): void {
+        activeRuns.delete(runId);
+        ctx.ui.setStatus("council", undefined);
+      }
 
       function buildSummary(): string {
         return results
@@ -163,9 +175,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       function deliverResults(): void {
-        if (delivered || !isInteractive) return; // guard: don't deliver twice or in non-interactive mode
+        if (delivered || !isInteractive || runState.cancelled) return;
         delivered = true;
-        activeRuns.delete(runId);
+        cleanup();
         const summary = buildSummary();
         writeArtifacts(summary);
         pi.sendMessage(
@@ -178,11 +190,35 @@ export default function (pi: ExtensionAPI) {
         );
       }
 
+      // Handle AbortSignal — kill children and clean up when tool call is cancelled
+      if (signal) {
+        signal.addEventListener("abort", () => {
+          runState.cancelled = true;
+          for (const child of children) {
+            try { child.kill("SIGTERM"); } catch {}
+          }
+          cleanup();
+        }, { once: true });
+      }
+
       for (let i = 0; i < models.length; i++) {
         const m = models[i];
 
-        // Use shared spawnWorker — detach=false so close events fire in-process
-        const { child } = spawnWorker(runDir, m, params.question, config, ctx.cwd, false);
+        let child: import("node:child_process").ChildProcess;
+        try {
+          const result = spawnWorker(runDir, m, params.question, config, ctx.cwd, false);
+          child = result.child;
+        } catch (err) {
+          results[i].finished = true;
+          results[i].exitCode = 1;
+          results[i].output = `spawn error: ${(err as Error).message}`;
+          finishedCount++;
+          if (finishedCount === models.length) {
+            ctx.ui.setStatus("council", undefined);
+            deliverResults();
+          }
+          continue;
+        }
         children.push(child);
 
         const handleFinish = (code: number | null, error?: string) => {
@@ -201,6 +237,10 @@ export default function (pi: ExtensionAPI) {
           try { fs.writeFileSync(agentPaths(runDir, m.id).done, String(code ?? "")); } catch {}
 
           finishedCount++;
+
+          // Don't update UI or deliver if cancelled
+          if (runState.cancelled) return;
+
           ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${models.length} done`);
 
           if (finishedCount === models.length) {
@@ -219,13 +259,22 @@ export default function (pi: ExtensionAPI) {
       if (!isInteractive) {
         await new Promise<void>((resolve) => {
           const interval = setInterval(() => {
-            if (finishedCount === models.length) {
+            if (finishedCount === models.length || runState.cancelled) {
               clearInterval(interval);
               resolve();
             }
           }, 500);
+
+          // Also clean up on abort
+          if (signal) {
+            signal.addEventListener("abort", () => {
+              clearInterval(interval);
+              resolve();
+            }, { once: true });
+          }
         });
 
+        cleanup();
         const summary = buildSummary();
         writeArtifacts(summary);
         return {

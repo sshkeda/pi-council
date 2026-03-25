@@ -53,6 +53,17 @@ export function getLatestFile(): string {
   return LATEST_FILE;
 }
 
+function validateModels(models: unknown): ModelSpec[] | null {
+  if (!Array.isArray(models)) return null;
+  const valid: ModelSpec[] = [];
+  for (const m of models) {
+    if (m && typeof m === "object" && typeof m.id === "string" && typeof m.provider === "string" && typeof m.model === "string") {
+      valid.push({ id: m.id, provider: m.provider, model: m.model, note: typeof m.note === "string" ? m.note : undefined });
+    }
+  }
+  return valid.length > 0 ? valid : null;
+}
+
 export function loadConfig(): Config {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.mkdirSync(RUNS_DIR, { recursive: true });
@@ -65,10 +76,10 @@ export function loadConfig(): Config {
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
     return {
-      models: raw.models ?? DEFAULT_CONFIG.models,
-      tools: raw.tools ?? DEFAULT_CONFIG.tools,
-      stall_seconds: raw.stall_seconds ?? DEFAULT_CONFIG.stall_seconds,
-      system_prompt: raw.system_prompt ?? DEFAULT_CONFIG.system_prompt,
+      models: validateModels(raw.models) ?? DEFAULT_CONFIG.models,
+      tools: typeof raw.tools === "string" ? raw.tools : DEFAULT_CONFIG.tools,
+      stall_seconds: typeof raw.stall_seconds === "number" && raw.stall_seconds > 0 ? raw.stall_seconds : DEFAULT_CONFIG.stall_seconds,
+      system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

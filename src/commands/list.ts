@@ -29,15 +29,40 @@ export function list(): void {
     const meta = loadMeta(runDir);
     if (!meta) continue;
 
-    const states = refreshRun(runDir, meta.agents, config.stall_seconds);
-    const done = states.filter((s) => s.status === "done" || s.status === "failed").length;
-    const total = states.length;
-    const allDone = done === total;
-    const failed = states.filter((s) => s.status === "failed").length;
+    // Fast-path: use results.json for completed runs (avoids re-parsing all JSONL streams)
+    const resultsPath = path.join(runDir, "results.json");
+    let statusStr: string;
+    let total: number;
 
-    const statusStr = allDone
-      ? (failed > 0 ? yellow(`${done - failed}/${total} ok`) : green("done"))
-      : yellow(`${done}/${total}`);
+    if (fs.existsSync(resultsPath)) {
+      try {
+        const resultsJson = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+        const workers = resultsJson.workers ?? [];
+        total = workers.length;
+        const failed = workers.filter((w: { status: string }) => w.status === "failed").length;
+        statusStr = failed > 0 ? yellow(`${total - failed}/${total} ok`) : green("done");
+      } catch {
+        // Corrupted results.json — fall back to full refresh
+        const states = refreshRun(runDir, meta.agents, config.stall_seconds);
+        total = states.length;
+        const done = states.filter((s) => s.status === "done" || s.status === "failed").length;
+        const failed = states.filter((s) => s.status === "failed").length;
+        const allDone = done === total;
+        statusStr = allDone
+          ? (failed > 0 ? yellow(`${done - failed}/${total} ok`) : green("done"))
+          : yellow(`${done}/${total}`);
+      }
+    } else {
+      // Active run — need full refresh
+      const states = refreshRun(runDir, meta.agents, config.stall_seconds);
+      total = states.length;
+      const done = states.filter((s) => s.status === "done" || s.status === "failed").length;
+      const failed = states.filter((s) => s.status === "failed").length;
+      const allDone = done === total;
+      statusStr = allDone
+        ? (failed > 0 ? yellow(`${done - failed}/${total} ok`) : green("done"))
+        : yellow(`${done}/${total}`);
+    }
 
     const marker = dir === latest ? " ←" : "";
     const promptPreview = meta.prompt.replace(/\n/g, " ").slice(0, 40);

@@ -39,6 +39,32 @@ export function loadMeta(runDir: string): RunMeta | null {
   }
 }
 
+/**
+ * Fast check: is this agent finished? Only checks .done file and PID liveness.
+ * Does NOT parse the JSONL stream — use for watch/results polling loops.
+ * Side-effect: writes .done marker if PID is dead but no .done file exists.
+ */
+export function isAgentDone(runDir: string, model: ModelSpec): boolean {
+  const paths = agentPaths(runDir, model.id);
+  if (fs.existsSync(paths.done)) return true;
+
+  // Check PID liveness
+  if (fs.existsSync(paths.pid)) {
+    try {
+      const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
+      if (!Number.isFinite(pid) || !pidAlive(pid)) {
+        // Process exited — mark done (side-effect isolated here)
+        try { fs.writeFileSync(paths.done, ""); } catch {}
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: number): WorkerState {
   const paths = agentPaths(runDir, model.id);
   const parsed = parseStream(paths.stream);
@@ -46,7 +72,8 @@ export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: nu
   let pid: number | null = null;
   if (fs.existsSync(paths.pid)) {
     try {
-      pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
+      const raw = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
+      pid = Number.isFinite(raw) ? raw : null;
     } catch {
       pid = null;
     }
@@ -55,13 +82,9 @@ export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: nu
   const isDone = fs.existsSync(paths.done);
   const isAlive = pid !== null && pidAlive(pid);
 
-  // Mark done if process exited
+  // Mark done if process exited (isolated side-effect)
   if (!isDone && pid !== null && !isAlive) {
-    try {
-      fs.writeFileSync(paths.done, "");
-    } catch {
-      // ignore
-    }
+    try { fs.writeFileSync(paths.done, ""); } catch {}
   }
 
   let status: WorkerStatus;

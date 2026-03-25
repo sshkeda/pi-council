@@ -45,17 +45,31 @@ export function spawnWorker(
     "--tools", config.tools,
     "--no-session",
     "--append-system-prompt", config.system_prompt,
+    "--", // end-of-flags: prevents prompt from being parsed as a flag
     prompt,
   ];
 
-  const child = spawn("pi", args, {
-    stdio: ["ignore", streamFd, errFd],
-    detached: detach,
-    cwd: cwd ?? process.cwd(),
-    env: { ...process.env },
-  });
+  let child: ChildProcess;
+  try {
+    child = spawn("pi", args, {
+      stdio: ["ignore", streamFd, errFd],
+      detached: detach,
+      cwd: cwd ?? process.cwd(),
+      env: { ...process.env },
+    });
+  } catch (err) {
+    fs.closeSync(streamFd);
+    fs.closeSync(errFd);
+    throw new Error(`Failed to spawn pi for model ${model.id}: ${(err as Error).message}`);
+  }
 
-  const pid = child.pid!;
+  if (child.pid === undefined) {
+    fs.closeSync(streamFd);
+    fs.closeSync(errFd);
+    throw new Error(`Failed to spawn pi for model ${model.id}: process did not start`);
+  }
+
+  const pid = child.pid;
   fs.writeFileSync(paths.pid, String(pid));
 
   fs.closeSync(streamFd);

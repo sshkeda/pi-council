@@ -1,4 +1,5 @@
 export function pidAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -8,6 +9,8 @@ export function pidAlive(pid: number): boolean {
 }
 
 export function killPid(pid: number): void {
+  if (!Number.isFinite(pid) || pid <= 0) return;
+
   // Try killing the process group first (catches child processes like bash)
   try {
     process.kill(-pid, "SIGTERM");
@@ -18,20 +21,18 @@ export function killPid(pid: number): void {
       return; // already dead
     }
   }
-  // Synchronous wait then SIGKILL if still alive
-  const start = Date.now();
-  while (Date.now() - start < 2000) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return; // dead
+
+  // Check if dead immediately
+  if (!pidAlive(pid)) return;
+
+  // Schedule SIGKILL after 2s if still alive (non-blocking)
+  setTimeout(() => {
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already dead
+      }
     }
-    // busy-wait in small increments (cleanup is rare, this is fine)
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // already dead
-  }
+  }, 2000).unref();
 }

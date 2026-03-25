@@ -1,15 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
-import { loadMeta, refreshRun, refreshWorker, type WorkerState, type RunMeta } from "../core/run-state.js";
+import { loadMeta, refreshRun, isAgentDone, type WorkerState, type RunMeta } from "../core/run-state.js";
 import { resolveRunId } from "./status.js";
 import { agentPaths } from "../core/runner.js";
 import { dim } from "../util/format.js";
 
-function checkAllDone(runDir: string, meta: RunMeta, stallSeconds: number): boolean {
-  // refreshWorker creates .done files when PID is dead
-  const states = refreshRun(runDir, meta.agents, stallSeconds);
-  return states.every((w) => w.status === "done" || w.status === "failed");
+function checkAllDone(runDir: string, meta: RunMeta, _stallSeconds: number): boolean {
+  // Fast-path: only check .done files and PID liveness — no JSONL parsing
+  return meta.agents.every((a) => isAgentDone(runDir, a));
 }
 
 function waitForCompletion(runDir: string, meta: RunMeta, stallSeconds: number): Promise<void> {

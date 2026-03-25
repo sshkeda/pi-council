@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import * as fs from "node:fs";
 import { spawn } from "./commands/spawn.js";
 import { status } from "./commands/status.js";
 import { results } from "./commands/results.js";
@@ -99,9 +100,12 @@ async function main(): Promise<void> {
       break;
     case "version":
     case "--version":
-    case "-v":
-      process.stdout.write("0.1.0\n");
+    case "-v": {
+      const pkgPath = new URL("../package.json", import.meta.url);
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      process.stdout.write(pkg.version + "\n");
       break;
+    }
     default:
       // Treat everything as an implicit ask
       const fullPrompt = [command, ...process.argv.slice(3)].join(" ");

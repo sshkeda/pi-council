@@ -28,7 +28,7 @@ export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning", note: "Has live X/Twitter access" },
 ];
 
-const DEFAULT_SYSTEM_PROMPT = `You are one member of a multi-model council.
+export const DEFAULT_SYSTEM_PROMPT = `You are one member of a multi-model council.
 Work independently. Do your own research using your tools.
 Do NOT spawn other agents, run council commands, or coordinate with other models.
 Be concise and specific.`;

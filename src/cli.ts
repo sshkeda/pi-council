@@ -101,7 +101,7 @@ async function main(): Promise<void> {
     case "version":
     case "--version":
     case "-v": {
-      const pkgPath = new URL("../package.json", import.meta.url);
+      const pkgPath = new URL("../../package.json", import.meta.url);
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
       process.stdout.write(pkg.version + "\n");
       break;

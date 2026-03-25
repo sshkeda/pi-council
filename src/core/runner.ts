@@ -48,10 +48,13 @@ export function spawnWorker(
     prompt,
   ];
 
+  // Spawn from the run directory by default — avoids picking up
+  // project-level instruction files (CLAUDE.md, AGENTS.md, etc.)
+  // from whatever cwd the caller happened to be in.
   const child = spawn("pi", args, {
     stdio: ["ignore", streamFd, errFd],
     detached: detach,
-    cwd: cwd ?? process.cwd(),
+    cwd: cwd ?? runDir,
     env: { ...process.env },
   });
 

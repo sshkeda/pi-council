@@ -112,7 +112,7 @@ async function main(): Promise<void> {
     }
     default:
       // Treat everything as an implicit ask
-      const fullPrompt = [command, ...process.argv.slice(3)].join(" ");
+      const fullPrompt = [command, prompt].filter(Boolean).join(" ");
       if (fullPrompt.trim()) {
         await ask(fullPrompt, { models, cwd });
       } else {

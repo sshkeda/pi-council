@@ -31,6 +31,7 @@ export const DEFAULT_MODELS: ModelSpec[] = [
 export const DEFAULT_SYSTEM_PROMPT = `You are one member of a multi-model council.
 Work independently. Do your own research using your tools.
 Do NOT spawn other agents, run council commands, or coordinate with other models.
+You MUST produce a final text answer to the question. Do not just run tools silently.
 Be concise and specific.`;
 
 const DEFAULT_CONFIG: Config = {

@@ -35,9 +35,9 @@ export function spawn(prompt: string, opts: SpawnOptions = {}): string {
   };
   fs.writeFileSync(path.join(runDir, "meta.json"), JSON.stringify(meta, null, 2));
 
-  // Spawn workers
+  // Spawn workers (detached for background mode)
   for (const model of models) {
-    const pid = spawnWorker(runDir, model, prompt, config, opts.cwd);
+    const { pid } = spawnWorker(runDir, model, prompt, config, opts.cwd, true);
     process.stderr.write(`  🚀 ${model.id.padEnd(8)} spawned (PID ${pid}, ${model.model})\n`);
   }
 

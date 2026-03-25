@@ -1,42 +1,42 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
-import { loadMeta, refreshRun, type WorkerState } from "../core/run-state.js";
+import { loadMeta, refreshRun, refreshWorker, type WorkerState, type RunMeta } from "../core/run-state.js";
 import { resolveRunId } from "./status.js";
 import { agentPaths } from "../core/runner.js";
 import { dim } from "../util/format.js";
 
-function waitForCompletion(runDir: string, agentIds: string[]): Promise<void> {
-  // Check if already done
-  const allDone = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
-  if (allDone) return Promise.resolve();
+function checkAllDone(runDir: string, meta: RunMeta, stallSeconds: number): boolean {
+  // refreshWorker creates .done files when PID is dead
+  const states = refreshRun(runDir, meta.agents, stallSeconds);
+  return states.every((w) => w.status === "done" || w.status === "failed");
+}
+
+function waitForCompletion(runDir: string, meta: RunMeta, stallSeconds: number): Promise<void> {
+  if (checkAllDone(runDir, meta, stallSeconds)) return Promise.resolve();
 
   return new Promise<void>((resolve) => {
     const watcher = fs.watch(runDir, () => {
-      // On any fs event, check if all .done files exist
-      const done = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
-      if (done) {
+      if (checkAllDone(runDir, meta, stallSeconds)) {
         watcher.close();
-        clearInterval(safety);
+        clearInterval(pidCheck);
         resolve();
       }
     });
 
-    // Safety fallback every 30s in case fs.watch misses events
-    const safety = setInterval(() => {
-      const done = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
-      if (done) {
+    // PID liveness check every 2s — for background spawn mode
+    const pidCheck = setInterval(() => {
+      if (checkAllDone(runDir, meta, stallSeconds)) {
         watcher.close();
-        clearInterval(safety);
+        clearInterval(pidCheck);
         resolve();
       }
-    }, 30_000);
+    }, 2_000);
 
-    // Race-proof: file may appear between initial check and fs.watch setup
-    const done = agentIds.every((id) => fs.existsSync(agentPaths(runDir, id).done));
-    if (done) {
+    // Race-proof
+    if (checkAllDone(runDir, meta, stallSeconds)) {
       watcher.close();
-      clearInterval(safety);
+      clearInterval(pidCheck);
       resolve();
     }
   });
@@ -55,10 +55,9 @@ export async function results(runId?: string, wait = true): Promise<void> {
 
   const config = loadConfig();
 
-  // Wait for completion via fs.watch (event-driven, not polling)
+  // Wait for completion via fs.watch + PID checks (event-driven)
   if (wait) {
-    const agentIds = meta.agents.map((a) => a.id);
-    await waitForCompletion(runDir, agentIds);
+    await waitForCompletion(runDir, meta, config.stall_seconds);
   }
 
   // Print results

@@ -1,17 +1,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
-import { loadMeta, refreshWorker } from "../core/run-state.js";
+import { loadMeta, refreshWorker, type RunMeta } from "../core/run-state.js";
 import { agentPaths } from "../core/runner.js";
 import { resolveRunId } from "./status.js";
 import { bold, green, red, yellow, dim } from "../util/format.js";
 
+const DEFAULT_TIMEOUT_SECONDS = 180;
+
 /**
  * Watch a council run — prints each agent's result the instant it finishes.
- * Event-driven via fs.watch, zero polling.
- * Orchestrator can call this after doing foreground work to catch up on everything.
+ * Auto-exits after timeout so the orchestrator can check on haywire agents.
  */
-export async function watch(runId?: string): Promise<void> {
+export async function watch(runId?: string, timeoutSeconds?: number): Promise<void> {
   const resolved = resolveRunId(runId);
   const runDir = path.join(getRunsDir(), resolved);
   const meta = loadMeta(runDir);
@@ -23,91 +24,84 @@ export async function watch(runId?: string): Promise<void> {
   }
 
   const config = loadConfig();
+  const timeout = timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
   const remaining = new Set(meta.agents.map((a) => a.id));
 
-  // Print anything already done
-  for (const agent of meta.agents) {
-    const paths = agentPaths(runDir, agent.id);
-    if (fs.existsSync(paths.done)) {
-      printAgentResult(runDir, agent.id, config.stall_seconds, meta);
-      remaining.delete(agent.id);
-    }
-  }
+  checkAndPrint(runDir, meta, config.stall_seconds, remaining);
 
   if (remaining.size === 0) {
-    process.stderr.write(dim("\nAll agents already finished.\n"));
+    process.stderr.write(dim("All agents already finished.\n"));
     return;
   }
 
-  process.stderr.write(dim(`\nWatching ${remaining.size} remaining agent(s)...\n\n`));
+  process.stderr.write(dim(`Watching ${remaining.size} remaining agent(s) (${timeout}s timeout)...\n\n`));
 
-  // Watch for .done files — event-driven
   return new Promise<void>((resolve) => {
-    const watcher = fs.watch(runDir, (_, filename) => {
-      if (!filename?.endsWith(".done")) return;
-      const id = filename.replace(".done", "");
-      if (!remaining.has(id)) return;
+    const deadline = setTimeout(() => {
+      watcher.close();
+      clearInterval(pidCheck);
+      // Print status of whatever's still running
+      for (const id of remaining) {
+        const agent = meta.agents.find((a) => a.id === id);
+        if (!agent) continue;
+        const w = refreshWorker(runDir, agent, config.stall_seconds);
+        const preview = w.preview ? ` | ${w.preview}...` : "";
+        process.stderr.write(`  ${yellow("⏳")} ${bold(w.id.padEnd(8))} still running (${w.toolCalls} tool calls)${preview}\n`);
+      }
+      process.stderr.write(dim(`\nTimeout after ${timeout}s. ${remaining.size} agent(s) still running.\n`));
+      process.stderr.write(dim(`  status  : pi-council status ${resolved}\n`));
+      process.stderr.write(dim(`  watch   : pi-council watch ${resolved}\n`));
+      process.stderr.write(dim(`  cleanup : pi-council cleanup ${resolved}\n`));
+      resolve();
+    }, timeout * 1000);
 
-      remaining.delete(id);
-      printAgentResult(runDir, id, config.stall_seconds, meta);
-
+    const watcher = fs.watch(runDir, () => {
+      checkAndPrint(runDir, meta, config.stall_seconds, remaining);
       if (remaining.size === 0) {
+        clearTimeout(deadline);
         watcher.close();
-        clearInterval(safety);
+        clearInterval(pidCheck);
         resolve();
       }
     });
 
-    // 30s safety fallback
-    const safety = setInterval(() => {
-      for (const id of [...remaining]) {
-        if (fs.existsSync(agentPaths(runDir, id).done)) {
-          remaining.delete(id);
-          printAgentResult(runDir, id, config.stall_seconds, meta);
-        }
-      }
+    const pidCheck = setInterval(() => {
+      checkAndPrint(runDir, meta, config.stall_seconds, remaining);
       if (remaining.size === 0) {
+        clearTimeout(deadline);
         watcher.close();
-        clearInterval(safety);
+        clearInterval(pidCheck);
         resolve();
       }
-    }, 30_000);
-
-    // Race-proof
-    for (const id of [...remaining]) {
-      if (fs.existsSync(agentPaths(runDir, id).done)) {
-        remaining.delete(id);
-        printAgentResult(runDir, id, config.stall_seconds, meta);
-      }
-    }
-    if (remaining.size === 0) {
-      watcher.close();
-      clearInterval(safety);
-      resolve();
-    }
+    }, 2_000);
   });
 }
 
-function printAgentResult(
+function checkAndPrint(
   runDir: string,
-  id: string,
+  meta: RunMeta,
   stallSeconds: number,
-  meta: import("../core/run-state.js").RunMeta,
+  remaining: Set<string>,
 ): void {
-  const agent = meta.agents.find((a) => a.id === id);
-  if (!agent) return;
+  for (const id of [...remaining]) {
+    const agent = meta.agents.find((a) => a.id === id);
+    if (!agent) { remaining.delete(id); continue; }
 
-  const w = refreshWorker(runDir, agent, stallSeconds);
-  const icon = w.status === "done" ? green("✅") : red("❌");
+    const w = refreshWorker(runDir, agent, stallSeconds);
 
-  process.stdout.write(`${icon} ${bold(w.id.toUpperCase())} (${w.model})\n`);
-  if (w.finalText) {
-    process.stdout.write(w.finalText + "\n");
-  } else {
-    process.stdout.write(`(no output: ${w.errorMessage ?? "unknown"})\n`);
+    if (w.status === "done" || w.status === "failed") {
+      remaining.delete(id);
+      const icon = w.status === "done" ? green("✅") : red("❌");
+      process.stdout.write(`${icon} ${bold(w.id.toUpperCase())} (${w.model})\n`);
+      if (w.finalText) {
+        process.stdout.write(w.finalText + "\n");
+      } else {
+        process.stdout.write(`(no output: ${w.errorMessage ?? "unknown"})\n`);
+      }
+      if (w.usage.cost > 0) {
+        process.stdout.write(dim(`  cost: $${w.usage.cost.toFixed(4)} | tokens: ↑${w.usage.input} ↓${w.usage.output}`) + "\n");
+      }
+      process.stdout.write("\n");
+    }
   }
-  if (w.usage.cost > 0) {
-    process.stdout.write(dim(`  cost: $${w.usage.cost.toFixed(4)} | tokens: ↑${w.usage.input} ↓${w.usage.output}`) + "\n");
-  }
-  process.stdout.write("\n");
 }

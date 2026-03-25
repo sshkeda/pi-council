@@ -5,11 +5,14 @@ import { spawnWorker, agentPaths } from "../core/runner.js";
 import { generateRunId } from "../util/run-id.js";
 import { refreshRun, type RunMeta } from "../core/run-state.js";
 import { results } from "./results.js";
-import { green, yellow, bold } from "../util/format.js";
+import { green, yellow, bold, dim } from "../util/format.js";
+
+const DEFAULT_TIMEOUT_SECONDS = 180;
 
 export interface AskOptions {
   models?: string[];
   cwd?: string;
+  timeout?: number;
 }
 
 export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> {
@@ -59,11 +62,20 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
     );
   }
 
-  process.stderr.write(`\n🏛️  Council running (${models.length} models, run: ${runId})\n\n`);
+  const timeout = opts.timeout ?? DEFAULT_TIMEOUT_SECONDS;
+  process.stderr.write(`\n🏛️  Council running (${models.length} models, run: ${runId}, ${timeout}s timeout)\n\n`);
 
-  // allSettled — partial failures don't block the rest
-  await Promise.allSettled(promises);
+  // Race: allSettled vs timeout
+  const settled = Promise.allSettled(promises);
+  const timer = new Promise<"timeout">((r) => setTimeout(() => r("timeout"), timeout * 1000));
+  const race = await Promise.race([settled.then(() => "done" as const), timer]);
 
-  // All settled — print results immediately
+  if (race === "timeout") {
+    // Print what we have so far
+    process.stderr.write(yellow(`\n⏳ Timeout after ${timeout}s. Printing available results.\n`));
+    process.stderr.write(dim(`   Some agents still running. Use: pi-council watch ${runId}\n\n`));
+  }
+
+  // Print whatever results exist
   await results(runId, false);
 }

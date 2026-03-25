@@ -107,6 +107,9 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // In non-interactive mode (print mode), fall back to blocking behavior
+      // because pi exits immediately after the tool returns
+      const isInteractive = ctx.hasUI;
       const selectedIds = params.models?.map((s) => s.toLowerCase()) ?? null;
       const models = selectedIds
         ? DEFAULT_MODELS.filter((m) => selectedIds.includes(m.id))
@@ -159,7 +162,7 @@ export default function (pi: ExtensionAPI) {
           ],
           {
             stdio: ["ignore", streamFd, errFd],
-            detached: true,
+            detached: false,
             cwd: ctx.cwd,
             env: { ...process.env },
           },
@@ -167,7 +170,7 @@ export default function (pi: ExtensionAPI) {
 
         fs.closeSync(streamFd);
         fs.closeSync(errFd);
-        child.unref();
+        // Don't unref — we need close handlers to fire inside pi's process
 
         const pidPath = path.join(runDir, `${m.id}.pid`);
         fs.writeFileSync(pidPath, String(child.pid ?? ""));
@@ -224,6 +227,35 @@ export default function (pi: ExtensionAPI) {
       }
 
       const modelNames = models.map((m) => m.id).join(", ");
+
+      // In non-interactive mode, wait for all agents to finish before returning
+      if (!isInteractive) {
+        await new Promise<void>((resolve) => {
+          const check = () => {
+            if (finishedCount === models.length) resolve();
+          };
+          // Poll finishedCount — children are attached so close events fire
+          const interval = setInterval(() => {
+            check();
+            if (finishedCount === models.length) clearInterval(interval);
+          }, 500);
+          check();
+        });
+
+        const summary = results
+          .map((r) => {
+            const icon = r.exitCode === 0 ? "✅" : "❌";
+            return `## ${icon} ${r.id.toUpperCase()} (${r.model})\n\n${r.output || "(no output)"}`;
+          })
+          .join("\n\n---\n\n");
+
+        return {
+          content: [{ type: "text", text: `🏛️ Council results:\n\n${summary}` }],
+          details: { runId, models: modelNames },
+        };
+      }
+
+      // Interactive mode: return immediately, results arrive via followUp
       return {
         content: [
           {

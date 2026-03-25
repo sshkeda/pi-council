@@ -56,6 +56,7 @@ export function parseStream(filePath: string): ParsedStream {
           if (part.type === "text") texts.push(part.text ?? "");
         }
         const joined = texts.join("").trim();
+        // Always track latest assistant text as fallback
         if (joined) result.assistantText = joined;
       }
     } else if (type === "message_end") {
@@ -67,11 +68,21 @@ export function parseStream(filePath: string): ParsedStream {
           if (part.type === "toolCall") result.toolCalls++;
         }
         const joined = texts.join("").trim();
-        if (joined) {
+
+        // Only set finalText from actual final answers (stopReason="stop"),
+        // not from intermediate tool-calling messages (stopReason="toolUse")
+        const stopReason = msg.stopReason ?? null;
+        if (stopReason === "stop" && joined) {
           result.finalText = joined;
           result.assistantText = joined;
         }
-        result.stopReason = msg.stopReason ?? null;
+
+        // Always update assistantText as fallback for partial output
+        if (joined) {
+          result.assistantText = joined;
+        }
+
+        result.stopReason = stopReason;
         result.errorMessage = msg.errorMessage ?? null;
 
         // Accumulate usage
@@ -84,8 +95,6 @@ export function parseStream(filePath: string): ParsedStream {
           result.usage.cost += u.cost?.total ?? 0;
         }
       }
-    } else if (type === "tool_execution_end") {
-      // Don't count here — already counted via toolCall parts in message_end
     }
   }
 

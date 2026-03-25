@@ -20,7 +20,27 @@ pi install npm:pi-council
 
 Requires [pi](https://github.com/badlogic/pi-mono) and configured API keys for the models you want to use.
 
-## Usage
+## Pi Extension (recommended)
+
+When installed as a pi package, pi-council registers a `spawn_council` tool that the LLM can call directly:
+
+```
+Use spawn_council to get opinions on this architecture decision
+```
+
+**How it works:**
+1. LLM calls `spawn_council` → tool returns immediately
+2. LLM continues foreground work (reading files, running tools, talking to you)
+3. Background agents finish → results auto-delivered via `followUp`
+4. LLM gets a new turn with all council results — zero polling
+
+**Parameters:**
+- `question` (required): The question for the council
+- `models` (optional): Array of model IDs, e.g. `["claude", "grok"]`
+
+## CLI Usage
+
+Also works as a plain CLI — any agent with bash access can use it.
 
 ### One-shot (blocks until done, 30s timeout)
 
@@ -73,9 +93,19 @@ Configure in `~/.pi-council/config.json`.
 - Each model runs as a **separate pi coding agent** with its own tools (bash, read)
 - Agents do their own independent research — they are NOT given the same evidence
 - Results are written to `~/.pi-council/runs/<run-id>/` as plain files any agent can read
-- `ask` waits via `child.on('close')` — zero polling
-- `watch` uses `fs.watch` — event-driven, prints each result the instant it lands
+- **Pi extension**: returns immediately, auto-notifies via `followUp` when done
+- **CLI `ask`**: waits via `child.on('close')` — zero polling
+- **CLI `watch`**: uses `fs.watch` — event-driven, prints each result the instant it lands
 - 30s default timeout kicks out so the orchestrator can check for haywire agents
+
+## Two interfaces, same artifacts
+
+| Interface | For | How |
+|-----------|-----|-----|
+| **Pi extension** (`spawn_council` tool) | Agents running inside pi | Returns immediately, auto-delivers results |
+| **CLI** (`pi-council` command) | Claude Code, Codex, Cursor, shell scripts | Shell out, read results from disk |
+
+Both write to the same `~/.pi-council/runs/` directory.
 
 ## Commands
 
@@ -88,17 +118,6 @@ Configure in `~/.pi-council/config.json`.
 | `watch [run-id]` | Stream results as each agent finishes |
 | `cleanup [run-id]` | Kill workers and remove run |
 | `list` | Show all runs |
-
-## For other agents
-
-Any coding agent with shell access can use pi-council:
-
-```bash
-# Claude Code, Codex, Cursor, etc.
-pi-council ask "your question"
-```
-
-Results are also readable from disk at `~/.pi-council/runs/<run-id>/results.json`.
 
 ## Zero dependencies
 

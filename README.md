@@ -80,7 +80,7 @@ pi-council list
 | gemini | google | gemini-3.1-pro-preview |
 | grok | xai | grok-4.20-0309-reasoning |
 
-Configure in `~/.pi-council/config.json`.
+Configure in `~/.pi-council/config.json` (auto-created on first run with defaults).
 
 ## How it works
 

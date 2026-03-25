@@ -50,7 +50,7 @@ export function spawnWorker(
 
   const child = spawn("pi", args, {
     stdio: ["ignore", streamFd, errFd],
-    detached: true,
+    detached: detach,
     cwd: cwd ?? process.cwd(),
     env: { ...process.env },
   });

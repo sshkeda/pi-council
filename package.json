@@ -10,6 +10,7 @@
     "bin",
     "dist",
     "skills",
+    "extensions",
     "README.md",
     "LICENSE"
   ],
@@ -23,6 +24,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "tsc",
     "dev": "node --import tsx src/cli.ts"
   },
   "devDependencies": {

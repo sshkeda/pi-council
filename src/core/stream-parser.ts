@@ -85,7 +85,7 @@ export function parseStream(filePath: string): ParsedStream {
         }
       }
     } else if (type === "tool_execution_end") {
-      result.toolCalls++;
+      // Don't count here — already counted via toolCall parts in message_end
     }
   }
 

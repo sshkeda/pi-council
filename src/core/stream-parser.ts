@@ -1,0 +1,93 @@
+import * as fs from "node:fs";
+
+export interface ParsedStream {
+  assistantText: string;
+  finalText: string;
+  stopReason: string | null;
+  errorMessage: string | null;
+  toolCalls: number;
+  events: number;
+  usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    cost: number;
+  };
+}
+
+export function parseStream(filePath: string): ParsedStream {
+  const result: ParsedStream = {
+    assistantText: "",
+    finalText: "",
+    stopReason: null,
+    errorMessage: null,
+    toolCalls: 0,
+    events: 0,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+  };
+
+  if (!fs.existsSync(filePath)) return result;
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return result;
+  }
+
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let event: any;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    result.events++;
+    const type = event.type;
+
+    if (type === "message_update") {
+      const msg = event.message;
+      if (msg?.role === "assistant") {
+        const texts: string[] = [];
+        for (const part of msg.content ?? []) {
+          if (part.type === "text") texts.push(part.text ?? "");
+        }
+        const joined = texts.join("").trim();
+        if (joined) result.assistantText = joined;
+      }
+    } else if (type === "message_end") {
+      const msg = event.message;
+      if (msg?.role === "assistant") {
+        const texts: string[] = [];
+        for (const part of msg.content ?? []) {
+          if (part.type === "text") texts.push(part.text ?? "");
+          if (part.type === "toolCall") result.toolCalls++;
+        }
+        const joined = texts.join("").trim();
+        if (joined) {
+          result.finalText = joined;
+          result.assistantText = joined;
+        }
+        result.stopReason = msg.stopReason ?? null;
+        result.errorMessage = msg.errorMessage ?? null;
+
+        // Accumulate usage
+        const u = msg.usage;
+        if (u) {
+          result.usage.input += u.input ?? 0;
+          result.usage.output += u.output ?? 0;
+          result.usage.cacheRead += u.cacheRead ?? 0;
+          result.usage.cacheWrite += u.cacheWrite ?? 0;
+          result.usage.cost += u.cost?.total ?? 0;
+        }
+      }
+    } else if (type === "tool_execution_end") {
+      result.toolCalls++;
+    }
+  }
+
+  return result;
+}

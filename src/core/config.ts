@@ -24,7 +24,7 @@ const LATEST_FILE = path.join(CONFIG_DIR, "latest-run-id");
 export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "claude", provider: "anthropic", model: "claude-opus-4-6", note: "Strong at nuanced reasoning" },
   { id: "gpt", provider: "openai-codex", model: "gpt-5.4", note: "Good at structured analysis" },
-  { id: "gemini", provider: "openrouter", model: "google/gemini-3.1-pro", note: "Fast, good at data analysis (via OpenRouter)" },
+  { id: "gemini", provider: "google", model: "gemini-3.1-pro-preview", note: "Fast, good at data analysis" },
   { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning", note: "Has live X/Twitter access" },
 ];
 

@@ -4,6 +4,8 @@ description: >
   Spawn multiple AI models (Claude, GPT, Gemini, Grok) as independent pi agents
   to get parallel opinions on any question. Use when you need diverse model perspectives
   on architecture decisions, investment analysis, code review, or any high-stakes question.
+version: 0.1.0
+license: MIT
 ---
 
 # pi-council

@@ -92,6 +92,10 @@ Configure in `~/.pi-council/config.json` (auto-created on first run with default
 - **CLI `watch`**: uses `fs.watch` — event-driven, prints each result the instant it lands
 - No timeout — agents handle their own limits natively
 
+## Pi Skill
+
+pi-council includes a skill file at `skills/pi-council/SKILL.md` that teaches any pi agent how and when to use the tool. When installed as a pi package, the skill is auto-discovered — no manual setup needed.
+
 ## Two interfaces, same artifacts
 
 | Interface | For | How |

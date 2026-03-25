@@ -97,6 +97,11 @@ async function main(): Promise<void> {
     case "-h":
       printHelp();
       break;
+    case "version":
+    case "--version":
+    case "-v":
+      process.stdout.write("0.1.0\n");
+      break;
     default:
       // Treat everything as an implicit ask
       const fullPrompt = [command, ...process.argv.slice(3)].join(" ");

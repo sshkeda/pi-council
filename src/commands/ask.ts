@@ -7,7 +7,7 @@ import { refreshRun, type RunMeta } from "../core/run-state.js";
 import { results } from "./results.js";
 import { green, yellow, bold, dim } from "../util/format.js";
 
-const DEFAULT_TIMEOUT_SECONDS = 180;
+const DEFAULT_TIMEOUT_SECONDS = 30;
 
 export interface AskOptions {
   models?: string[];

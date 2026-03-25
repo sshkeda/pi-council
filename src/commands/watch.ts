@@ -6,7 +6,7 @@ import { agentPaths } from "../core/runner.js";
 import { resolveRunId } from "./status.js";
 import { bold, green, red, yellow, dim } from "../util/format.js";
 
-const DEFAULT_TIMEOUT_SECONDS = 180;
+const DEFAULT_TIMEOUT_SECONDS = 30;
 
 /**
  * Watch a council run — prints each agent's result the instant it finishes.

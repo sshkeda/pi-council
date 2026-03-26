@@ -4,17 +4,8 @@ import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { ModelSpec, Config } from "./config.js";
 
-export interface RunPaths {
-  stream: string;
-  err: string;
-  pid: string;
-  done: string;
-}
-
-export interface SpawnResult {
-  pid: number;
-  child: ChildProcess;
-}
+export interface RunPaths { stream: string; err: string; pid: string; done: string; }
+export interface SpawnResult { pid: number; child: ChildProcess; }
 
 export function agentPaths(runDir: string, id: string): RunPaths {
   return {
@@ -25,97 +16,97 @@ export function agentPaths(runDir: string, id: string): RunPaths {
   };
 }
 
-/** Resolve the path to the compiled supervisor script */
 function supervisorPath(): string {
-  const dir = path.dirname(fileURLToPath(import.meta.url));
-  return path.join(dir, "supervisor.js");
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "supervisor.js");
 }
 
-export function spawnWorker(
-  runDir: string,
-  model: ModelSpec,
-  prompt: string,
-  config: Config,
-  cwd?: string,
-  detach = true,
-  timeoutSeconds = 0,
-): SpawnResult {
+export function spawnWorker(runDir: string, model: ModelSpec, prompt: string, config: Config, cwd?: string, detach = true, timeoutSeconds = 0): SpawnResult {
   const paths = agentPaths(runDir, model.id);
-
   const streamFd = fs.openSync(paths.stream, "w");
   const errFd = fs.openSync(paths.err, "w");
 
-  const piArgs = [
-    "--mode", "json",
-    "-p",
-    "--provider", model.provider,
-    "--model", model.model,
-    "--tools", config.tools,
-    "--no-session",
-    "--append-system-prompt", config.system_prompt,
-    "--",
-    prompt,
-  ];
+  const piArgs = ["--mode", "json", "-p", "--provider", model.provider, "--model", model.model, "--tools", config.tools, "--no-session", "--append-system-prompt", config.system_prompt, "--", prompt];
 
   let child: ChildProcess;
-
-  if (detach) {
-    // Detached mode: spawn through supervisor.js which handles:
-    // 1) Writing .done with real exit code (authoritative completion)
-    // 2) Enforcing timeout (kills pi after N seconds)
-    // The supervisor spawns pi with inherited stdio, so output goes to our FDs.
-    const supervisorArgs = [
-      supervisorPath(),
-      paths.done,
-      String(timeoutSeconds),
-      ...piArgs,
-    ];
-
-    try {
-      child = spawn(process.execPath, supervisorArgs, {
-        stdio: ["ignore", streamFd, errFd],
-        detached: true,
-        cwd: cwd ?? process.cwd(),
-        env: { ...process.env },
+  try {
+    if (detach) {
+      child = spawn(process.execPath, [supervisorPath(), paths.done, String(timeoutSeconds), ...piArgs], {
+        stdio: ["ignore", streamFd, errFd], detached: true, cwd: cwd ?? process.cwd(), env: { ...process.env },
       });
-    } catch (err) {
-      fs.closeSync(streamFd);
-      fs.closeSync(errFd);
-      throw new Error(`Failed to spawn supervisor for model ${model.id}: ${(err as Error).message}`);
-    }
-  } else {
-    // Non-detached mode: spawn pi directly, caller (CouncilSession) manages lifecycle
-    try {
+    } else {
       child = spawn("pi", piArgs, {
-        stdio: ["ignore", streamFd, errFd],
-        detached: false,
-        cwd: cwd ?? process.cwd(),
-        env: { ...process.env },
+        stdio: ["ignore", streamFd, errFd], detached: false, cwd: cwd ?? process.cwd(), env: { ...process.env },
       });
-    } catch (err) {
-      fs.closeSync(streamFd);
-      fs.closeSync(errFd);
-      throw new Error(`Failed to spawn pi for model ${model.id}: ${(err as Error).message}`);
     }
+  } catch (err) {
+    fs.closeSync(streamFd); fs.closeSync(errFd);
+    throw new Error(`Failed to spawn for ${model.id}: ${(err as Error).message}`);
   }
 
   if (child.pid === undefined) {
     try { child.kill("SIGTERM"); } catch {}
-    fs.closeSync(streamFd);
-    fs.closeSync(errFd);
-    throw new Error(`Failed to spawn ${detach ? "supervisor" : "pi"} for model ${model.id}: process did not start`);
+    fs.closeSync(streamFd); fs.closeSync(errFd);
+    throw new Error(`Failed to spawn for ${model.id}: process did not start`);
   }
 
-  const pid = child.pid;
-  fs.writeFileSync(paths.pid, String(pid));
-  // Safe to close parent's FD copies: Node.js dup()s them into the child at spawn time,
-  // so the child has its own independent file descriptors for stdout/stderr.
-  fs.closeSync(streamFd);
-  fs.closeSync(errFd);
+  fs.writeFileSync(paths.pid, String(child.pid));
+  fs.closeSync(streamFd); fs.closeSync(errFd);
+  if (detach) child.unref();
+  return { pid: child.pid, child };
+}
 
-  if (detach) {
-    child.unref();
+// --- Stream parser ---
+
+export interface ParsedStream {
+  assistantText: string;
+  finalText: string;
+  stopReason: string | null;
+  errorMessage: string | null;
+  toolCalls: number;
+  events: number;
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+}
+
+export function parseStream(filePath: string): ParsedStream {
+  const result: ParsedStream = {
+    assistantText: "", finalText: "", stopReason: null, errorMessage: null, toolCalls: 0, events: 0,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+  };
+  let raw: string;
+  try { raw = fs.readFileSync(filePath, "utf-8"); } catch { return result; }
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: { type?: string; message?: Record<string, unknown> };
+    try { event = JSON.parse(trimmed); } catch { continue; }
+    if (!event || typeof event.type !== "string") continue;
+    result.events++;
+
+    const msg = event.message as Record<string, unknown> | undefined;
+    if (!msg || msg.role !== "assistant") continue;
+    const content = (msg.content ?? []) as Array<{ type: string; text?: string }>;
+    const texts = content.filter(p => p.type === "text").map(p => p.text ?? "");
+    const joined = texts.join("").trim();
+
+    if (event.type === "message_update") {
+      if (joined) result.assistantText = joined;
+    } else if (event.type === "message_end") {
+      result.toolCalls += content.filter(p => p.type === "toolCall").length;
+      const stop = (msg.stopReason as string) ?? null;
+      if (stop === "stop" && joined) { result.finalText = joined; result.assistantText = joined; }
+      if (joined) result.assistantText = joined;
+      result.stopReason = stop;
+      result.errorMessage = (msg.errorMessage as string) ?? null;
+      const u = msg.usage as Record<string, unknown> | undefined;
+      if (u) {
+        result.usage.input += (u.input as number) ?? 0;
+        result.usage.output += (u.output as number) ?? 0;
+        result.usage.cacheRead += (u.cacheRead as number) ?? 0;
+        result.usage.cacheWrite += (u.cacheWrite as number) ?? 0;
+        result.usage.cost += ((u.cost as Record<string, number>)?.total) ?? 0;
+      }
+    }
   }
-
-  return { pid, child };
+  return result;
 }

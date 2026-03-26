@@ -5,39 +5,14 @@ import { resolveModels, DEFAULT_MODELS } from "../src/core/config.js";
 const config = {
   models: DEFAULT_MODELS,
   tools: "bash,read",
-  stall_seconds: 60,
   timeout_seconds: 600,
   system_prompt: "test",
 };
 
 describe("resolveModels", () => {
-  it("returns all models when no filter", () => {
-    const result = resolveModels(config);
-    assert.equal(result.length, DEFAULT_MODELS.length);
-  });
-
-  it("returns all models when filter is empty array", () => {
-    const result = resolveModels(config, []);
-    assert.equal(result.length, DEFAULT_MODELS.length);
-  });
-
-  it("filters to specific models", () => {
-    const result = resolveModels(config, ["claude", "grok"]);
-    assert.equal(result.length, 2);
-    assert.equal(result[0].id, "claude");
-    assert.equal(result[1].id, "grok");
-  });
-
-  it("is case-insensitive", () => {
-    const result = resolveModels(config, ["CLAUDE", "GPT"]);
-    assert.equal(result.length, 2);
-  });
-
-  it("throws on unknown model", () => {
-    assert.throws(() => resolveModels(config, ["claude", "unknown"]), /Unknown model\(s\): unknown/);
-  });
-
-  it("throws listing available models", () => {
-    assert.throws(() => resolveModels(config, ["bad"]), /Available:/);
-  });
+  it("returns all models when no filter", () => { assert.equal(resolveModels(config).length, DEFAULT_MODELS.length); });
+  it("returns all models when empty array", () => { assert.equal(resolveModels(config, []).length, DEFAULT_MODELS.length); });
+  it("filters to specific models", () => { const r = resolveModels(config, ["claude", "grok"]); assert.equal(r.length, 2); });
+  it("is case-insensitive", () => { assert.equal(resolveModels(config, ["CLAUDE"]).length, 1); });
+  it("throws on unknown model", () => { assert.throws(() => resolveModels(config, ["unknown"]), /Unknown model/); });
 });

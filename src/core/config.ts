@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as crypto from "node:crypto";
 
 export interface ModelSpec {
   id: string;
@@ -12,31 +13,29 @@ export interface ModelSpec {
 export interface Config {
   models: ModelSpec[];
   tools: string;
-  stall_seconds: number;
-  /** Max seconds per council run. 0 = no timeout. Default: 300 (5 min). */
   timeout_seconds: number;
   system_prompt: string;
 }
 
-// Lazy path resolution — honors PI_COUNCIL_HOME changes at runtime (important for tests)
-function configDir(): string {
-  return process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council");
-}
-function configPath(): string {
-  return path.join(configDir(), "config.json");
-}
-function runsDir(): string {
-  return path.join(configDir(), "runs");
-}
-function latestFile(): string {
-  return path.join(configDir(), "latest-run-id");
+export interface RunMeta {
+  runId: string;
+  prompt: string;
+  startedAt: number;
+  agents: ModelSpec[];
+  cwd: string;
 }
 
+// Lazy path resolution — honors PI_COUNCIL_HOME at runtime (tests)
+function configDir(): string { return process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council"); }
+export function getConfigDir(): string { return configDir(); }
+export function getRunsDir(): string { return path.join(configDir(), "runs"); }
+export function getLatestFile(): string { return path.join(configDir(), "latest-run-id"); }
+
 export const DEFAULT_MODELS: ModelSpec[] = [
-  { id: "claude", provider: "anthropic", model: "claude-opus-4-6", note: "Strong at nuanced reasoning" },
-  { id: "gpt", provider: "openai-codex", model: "gpt-5.4", note: "Good at structured analysis" },
-  { id: "gemini", provider: "google", model: "gemini-3.1-pro-preview", note: "Fast, good at data analysis" },
-  { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning", note: "Has live X/Twitter access" },
+  { id: "claude", provider: "anthropic", model: "claude-opus-4-6" },
+  { id: "gpt", provider: "openai-codex", model: "gpt-5.4" },
+  { id: "gemini", provider: "google", model: "gemini-3.1-pro-preview" },
+  { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning" },
 ];
 
 export const DEFAULT_SYSTEM_PROMPT = `You are one member of a multi-model council.
@@ -48,54 +47,30 @@ Be concise and specific.`;
 const DEFAULT_CONFIG: Config = {
   models: DEFAULT_MODELS,
   tools: "bash,read",
-  stall_seconds: 60,
   timeout_seconds: 600,
   system_prompt: DEFAULT_SYSTEM_PROMPT,
 };
 
-export function getConfigDir(): string {
-  return configDir();
-}
-
-export function getRunsDir(): string {
-  return runsDir();
-}
-
-export function getLatestFile(): string {
-  return latestFile();
-}
-
-function validateModels(models: unknown): ModelSpec[] | null {
-  if (!Array.isArray(models)) return null;
-  const valid: ModelSpec[] = [];
-  for (const m of models) {
-    if (m && typeof m === "object" && typeof m.id === "string" && typeof m.provider === "string" && typeof m.model === "string") {
-      valid.push({ id: m.id, provider: m.provider, model: m.model, note: typeof m.note === "string" ? m.note : undefined });
-    }
-  }
-  return valid.length > 0 ? valid : null;
-}
-
 export function loadConfig(): Config {
   fs.mkdirSync(configDir(), { recursive: true });
-  fs.mkdirSync(runsDir(), { recursive: true });
-
-  if (!fs.existsSync(configPath())) {
-    fs.writeFileSync(configPath(), JSON.stringify(DEFAULT_CONFIG, null, 2));
+  fs.mkdirSync(getRunsDir(), { recursive: true });
+  const cp = path.join(configDir(), "config.json");
+  if (!fs.existsSync(cp)) {
+    fs.writeFileSync(cp, JSON.stringify(DEFAULT_CONFIG, null, 2));
     return { ...DEFAULT_CONFIG };
   }
-
   try {
-    const raw = JSON.parse(fs.readFileSync(configPath(), "utf-8"));
+    const raw = JSON.parse(fs.readFileSync(cp, "utf-8"));
     return {
-      models: validateModels(raw.models) ?? DEFAULT_CONFIG.models,
+      models: Array.isArray(raw.models) ? raw.models.filter((m: unknown) =>
+        m && typeof m === "object" && typeof (m as ModelSpec).id === "string" && typeof (m as ModelSpec).provider === "string" && typeof (m as ModelSpec).model === "string"
+      ) : DEFAULT_CONFIG.models,
       tools: typeof raw.tools === "string" ? raw.tools : DEFAULT_CONFIG.tools,
-      stall_seconds: typeof raw.stall_seconds === "number" && raw.stall_seconds > 0 ? raw.stall_seconds : DEFAULT_CONFIG.stall_seconds,
       timeout_seconds: typeof raw.timeout_seconds === "number" && raw.timeout_seconds >= 0 ? raw.timeout_seconds : DEFAULT_CONFIG.timeout_seconds,
       system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
   } catch (err) {
-    process.stderr.write(`Warning: ${configPath()} is invalid (${(err as Error).message}), using defaults\n`);
+    process.stderr.write(`Warning: config invalid (${(err as Error).message}), using defaults\n`);
     return { ...DEFAULT_CONFIG };
   }
 }
@@ -105,9 +80,20 @@ export function resolveModels(config: Config, filter?: string[]): ModelSpec[] {
   const wanted = new Set(filter.map((s) => s.trim().toLowerCase()));
   const found = config.models.filter((m) => wanted.has(m.id.toLowerCase()));
   const missing = [...wanted].filter((w) => !found.some((f) => f.id.toLowerCase() === w));
-  if (missing.length > 0) {
-    const available = config.models.map((m) => m.id).join(", ");
-    throw new Error(`Unknown model(s): ${missing.join(", ")}. Available: ${available}`);
-  }
+  if (missing.length > 0) throw new Error(`Unknown model(s): ${missing.join(", ")}. Available: ${config.models.map((m) => m.id).join(", ")}`);
   return found;
+}
+
+export function createRun(prompt: string, models: ModelSpec[], cwd: string): { runId: string; runDir: string } {
+  const now = new Date();
+  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const runId = `${date}-${time}-${crypto.randomBytes(4).toString("hex")}`;
+  const runDir = path.join(getRunsDir(), runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, "prompt.txt"), prompt);
+  fs.writeFileSync(path.join(runDir, "meta.json"), JSON.stringify({ runId, prompt, startedAt: Date.now(), agents: models, cwd } as RunMeta, null, 2));
+  fs.writeFileSync(getLatestFile(), runId);
+  return { runId, runDir };
 }

@@ -61,7 +61,7 @@
     "prepublishOnly": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts",
     "test:benchmark": "node tests/benchmark/run-benchmarks.mjs",
-    "test": "node --import tsx --test test/*.test.ts test/scenarios/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",

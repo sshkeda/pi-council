@@ -10,9 +10,20 @@ const config = {
 };
 
 describe("resolveModels", () => {
-  it("returns all models when no filter", () => { assert.equal(resolveModels(config).length, DEFAULT_MODELS.length); });
-  it("returns all models when empty array", () => { assert.equal(resolveModels(config, []).length, DEFAULT_MODELS.length); });
-  it("filters to specific models", () => { const r = resolveModels(config, ["claude", "grok"]); assert.equal(r.length, 2); });
-  it("is case-insensitive", () => { assert.equal(resolveModels(config, ["CLAUDE"]).length, 1); });
-  it("throws on unknown model", () => { assert.throws(() => resolveModels(config, ["unknown"]), /Unknown model/); });
+  it("returns all models when no filter", () => {
+    assert.equal(resolveModels(config).length, DEFAULT_MODELS.length);
+  });
+  it("returns all models when empty array", () => {
+    assert.equal(resolveModels(config, []).length, DEFAULT_MODELS.length);
+  });
+  it("filters to specific models", () => {
+    const r = resolveModels(config, ["claude", "grok"]);
+    assert.equal(r.length, 2);
+  });
+  it("is case-insensitive", () => {
+    assert.equal(resolveModels(config, ["CLAUDE"]).length, 1);
+  });
+  it("throws on unknown model", () => {
+    assert.throws(() => resolveModels(config, ["unknown"]), /Unknown model/);
+  });
 });

@@ -61,7 +61,11 @@
     "prepublishOnly": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts",
     "test:benchmark": "node tests/benchmark/run-benchmarks.mjs",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/config.test.ts test/cli-parse.test.ts test/core.test.ts",
+    "test:e2e": "node --import tsx --test test/e2e.test.ts",
+    "lint": "eslint src/ extensions/",
+    "format": "prettier --write src/ extensions/ test/",
+    "format:check": "prettier --check src/ extensions/ test/"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
@@ -69,11 +73,15 @@
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*",
     "@types/node": "^22.0.0",
+    "eslint": "^10.1.0",
+    "prettier": "^3.8.1",
     "tsx": "^4.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.57.2"
   }
 }

@@ -26,10 +26,18 @@ export interface RunMeta {
 }
 
 // Lazy path resolution — honors PI_COUNCIL_HOME at runtime (tests)
-function configDir(): string { return process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council"); }
-export function getConfigDir(): string { return configDir(); }
-export function getRunsDir(): string { return path.join(configDir(), "runs"); }
-export function getLatestFile(): string { return path.join(configDir(), "latest-run-id"); }
+function configDir(): string {
+  return process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council");
+}
+export function getConfigDir(): string {
+  return configDir();
+}
+export function getRunsDir(): string {
+  return path.join(configDir(), "runs");
+}
+export function getLatestFile(): string {
+  return path.join(configDir(), "latest-run-id");
+}
 
 export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "claude", provider: "anthropic", model: "claude-opus-4-6" },
@@ -62,11 +70,21 @@ export function loadConfig(): Config {
   try {
     const raw = JSON.parse(fs.readFileSync(cp, "utf-8"));
     return {
-      models: Array.isArray(raw.models) ? raw.models.filter((m: unknown) =>
-        m && typeof m === "object" && typeof (m as ModelSpec).id === "string" && typeof (m as ModelSpec).provider === "string" && typeof (m as ModelSpec).model === "string"
-      ) : DEFAULT_CONFIG.models,
+      models: Array.isArray(raw.models)
+        ? raw.models.filter(
+            (m: unknown) =>
+              m &&
+              typeof m === "object" &&
+              typeof (m as ModelSpec).id === "string" &&
+              typeof (m as ModelSpec).provider === "string" &&
+              typeof (m as ModelSpec).model === "string",
+          )
+        : DEFAULT_CONFIG.models,
       tools: typeof raw.tools === "string" ? raw.tools : DEFAULT_CONFIG.tools,
-      timeout_seconds: typeof raw.timeout_seconds === "number" && raw.timeout_seconds >= 0 ? raw.timeout_seconds : DEFAULT_CONFIG.timeout_seconds,
+      timeout_seconds:
+        typeof raw.timeout_seconds === "number" && raw.timeout_seconds >= 0
+          ? raw.timeout_seconds
+          : DEFAULT_CONFIG.timeout_seconds,
       system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
   } catch (err) {
@@ -80,7 +98,8 @@ export function resolveModels(config: Config, filter?: string[]): ModelSpec[] {
   const wanted = new Set(filter.map((s) => s.trim().toLowerCase()));
   const found = config.models.filter((m) => wanted.has(m.id.toLowerCase()));
   const missing = [...wanted].filter((w) => !found.some((f) => f.id.toLowerCase() === w));
-  if (missing.length > 0) throw new Error(`Unknown model(s): ${missing.join(", ")}. Available: ${config.models.map((m) => m.id).join(", ")}`);
+  if (missing.length > 0)
+    throw new Error(`Unknown model(s): ${missing.join(", ")}. Available: ${config.models.map((m) => m.id).join(", ")}`);
   return found;
 }
 
@@ -93,7 +112,10 @@ export function createRun(prompt: string, models: ModelSpec[], cwd: string): { r
   const runDir = path.join(getRunsDir(), runId);
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(path.join(runDir, "prompt.txt"), prompt);
-  fs.writeFileSync(path.join(runDir, "meta.json"), JSON.stringify({ runId, prompt, startedAt: Date.now(), agents: models, cwd } as RunMeta, null, 2));
+  fs.writeFileSync(
+    path.join(runDir, "meta.json"),
+    JSON.stringify({ runId, prompt, startedAt: Date.now(), agents: models, cwd } as RunMeta, null, 2),
+  );
   fs.writeFileSync(getLatestFile(), runId);
   return { runId, runDir };
 }

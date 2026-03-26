@@ -33,10 +33,14 @@ let killed = false;
 // This ensures the pi child dies even if the supervisor is about to be SIGKILL'd.
 function terminateChild(): void {
   killed = true;
-  try { child.kill("SIGTERM"); } catch {}
+  try {
+    child.kill("SIGTERM");
+  } catch {}
   // Escalate to SIGKILL quickly — we may be SIGKILL'd ourselves in ~2s
   setTimeout(() => {
-    try { child.kill("SIGKILL"); } catch {}
+    try {
+      child.kill("SIGKILL");
+    } catch {}
   }, 1000).unref();
 }
 
@@ -48,9 +52,13 @@ let timer: NodeJS.Timeout | undefined;
 if (timeoutSec > 0) {
   timer = setTimeout(() => {
     killed = true;
-    try { child.kill("SIGTERM"); } catch {}
+    try {
+      child.kill("SIGTERM");
+    } catch {}
     setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch {}
+      try {
+        child.kill("SIGKILL");
+      } catch {}
     }, 2000).unref();
   }, timeoutSec * 1000);
 }
@@ -59,13 +67,17 @@ child.on("close", (code) => {
   if (timer) clearTimeout(timer);
   const exitCode = killed ? 124 : (code ?? 1);
   // Write-once: wx flag ensures we don't overwrite cancel/timeout markers
-  try { fs.writeFileSync(donePath, String(exitCode), { flag: "wx" }); } catch {}
+  try {
+    fs.writeFileSync(donePath, String(exitCode), { flag: "wx" });
+  } catch {}
   process.exit(exitCode);
 });
 
 child.on("error", () => {
   if (timer) clearTimeout(timer);
   // Write-once: wx flag ensures we don't overwrite cancel/timeout markers
-  try { fs.writeFileSync(donePath, "1", { flag: "wx" }); } catch {}
+  try {
+    fs.writeFileSync(donePath, "1", { flag: "wx" });
+  } catch {}
   process.exit(1);
 });

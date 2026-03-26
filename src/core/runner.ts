@@ -4,8 +4,16 @@ import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { ModelSpec, Config } from "./config.js";
 
-export interface RunPaths { stream: string; err: string; pid: string; done: string; }
-export interface SpawnResult { pid: number; child: ChildProcess; }
+export interface RunPaths {
+  stream: string;
+  err: string;
+  pid: string;
+  done: string;
+}
+export interface SpawnResult {
+  pid: number;
+  child: ChildProcess;
+}
 
 export function agentPaths(runDir: string, id: string): RunPaths {
   return {
@@ -17,40 +25,81 @@ export function agentPaths(runDir: string, id: string): RunPaths {
 }
 
 function supervisorPath(): string {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "supervisor.js");
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  // When running via tsx (dev), the .ts file is in src/ but supervisor must be the compiled .js in dist/
+  const jsPath = path.join(dir, "supervisor.js");
+  if (fs.existsSync(jsPath)) return jsPath;
+  // Fallback: find it in the dist/ directory relative to project root
+  const distPath = path.resolve(dir, "../../dist/src/core/supervisor.js");
+  if (fs.existsSync(distPath)) return distPath;
+  return jsPath; // best effort
 }
 
-export function spawnWorker(runDir: string, model: ModelSpec, prompt: string, config: Config, cwd?: string, detach = true, timeoutSeconds = 0): SpawnResult {
+export function spawnWorker(
+  runDir: string,
+  model: ModelSpec,
+  prompt: string,
+  config: Config,
+  cwd?: string,
+  detach = true,
+  timeoutSeconds = 0,
+): SpawnResult {
   const paths = agentPaths(runDir, model.id);
   const streamFd = fs.openSync(paths.stream, "w");
   const errFd = fs.openSync(paths.err, "w");
 
-  const piArgs = ["--mode", "json", "-p", "--provider", model.provider, "--model", model.model, "--tools", config.tools, "--no-session", "--append-system-prompt", config.system_prompt, "--", prompt];
+  const piArgs = [
+    "--mode",
+    "json",
+    "-p",
+    "--provider",
+    model.provider,
+    "--model",
+    model.model,
+    "--tools",
+    config.tools,
+    "--no-session",
+    "--append-system-prompt",
+    config.system_prompt,
+    "--",
+    prompt,
+  ];
 
   let child: ChildProcess;
   try {
     if (detach) {
       child = spawn(process.execPath, [supervisorPath(), paths.done, String(timeoutSeconds), ...piArgs], {
-        stdio: ["ignore", streamFd, errFd], detached: true, cwd: cwd ?? process.cwd(), env: { ...process.env },
+        stdio: ["ignore", streamFd, errFd],
+        detached: true,
+        cwd: cwd ?? process.cwd(),
+        env: { ...process.env },
       });
     } else {
       child = spawn("pi", piArgs, {
-        stdio: ["ignore", streamFd, errFd], detached: false, cwd: cwd ?? process.cwd(), env: { ...process.env },
+        stdio: ["ignore", streamFd, errFd],
+        detached: false,
+        cwd: cwd ?? process.cwd(),
+        env: { ...process.env },
       });
     }
   } catch (err) {
-    fs.closeSync(streamFd); fs.closeSync(errFd);
-    throw new Error(`Failed to spawn for ${model.id}: ${(err as Error).message}`);
+    fs.closeSync(streamFd);
+    fs.closeSync(errFd);
+    throw new Error(`Failed to spawn for ${model.id}: ${(err as Error).message}`, { cause: err });
   }
 
   if (child.pid === undefined) {
-    try { child.kill("SIGTERM"); } catch {}
-    fs.closeSync(streamFd); fs.closeSync(errFd);
+    try {
+      child.kill("SIGTERM");
+    } catch {}
+    fs.closeSync(streamFd);
+    fs.closeSync(errFd);
     throw new Error(`Failed to spawn for ${model.id}: process did not start`);
   }
 
   fs.writeFileSync(paths.pid, String(child.pid));
-  fs.closeSync(streamFd); fs.closeSync(errFd);
+  fs.closeSync(streamFd);
+  fs.closeSync(errFd);
   if (detach) child.unref();
   return { pid: child.pid, child };
 }
@@ -69,32 +118,48 @@ export interface ParsedStream {
 
 export function parseStream(filePath: string): ParsedStream {
   const result: ParsedStream = {
-    assistantText: "", finalText: "", stopReason: null, errorMessage: null, toolCalls: 0, events: 0,
+    assistantText: "",
+    finalText: "",
+    stopReason: null,
+    errorMessage: null,
+    toolCalls: 0,
+    events: 0,
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
   };
   let raw: string;
-  try { raw = fs.readFileSync(filePath, "utf-8"); } catch { return result; }
+  try {
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return result;
+  }
 
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     let event: { type?: string; message?: Record<string, unknown> };
-    try { event = JSON.parse(trimmed); } catch { continue; }
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
     if (!event || typeof event.type !== "string") continue;
     result.events++;
 
     const msg = event.message as Record<string, unknown> | undefined;
     if (!msg || msg.role !== "assistant") continue;
     const content = (msg.content ?? []) as Array<{ type: string; text?: string }>;
-    const texts = content.filter(p => p.type === "text").map(p => p.text ?? "");
+    const texts = content.filter((p) => p.type === "text").map((p) => p.text ?? "");
     const joined = texts.join("").trim();
 
     if (event.type === "message_update") {
       if (joined) result.assistantText = joined;
     } else if (event.type === "message_end") {
-      result.toolCalls += content.filter(p => p.type === "toolCall").length;
+      result.toolCalls += content.filter((p) => p.type === "toolCall").length;
       const stop = (msg.stopReason as string) ?? null;
-      if (stop === "stop" && joined) { result.finalText = joined; result.assistantText = joined; }
+      if (stop === "stop" && joined) {
+        result.finalText = joined;
+        result.assistantText = joined;
+      }
       if (joined) result.assistantText = joined;
       result.stopReason = stop;
       result.errorMessage = (msg.errorMessage as string) ?? null;
@@ -104,7 +169,7 @@ export function parseStream(filePath: string): ParsedStream {
         result.usage.output += (u.output as number) ?? 0;
         result.usage.cacheRead += (u.cacheRead as number) ?? 0;
         result.usage.cacheWrite += (u.cacheWrite as number) ?? 0;
-        result.usage.cost += ((u.cost as Record<string, number>)?.total) ?? 0;
+        result.usage.cost += (u.cost as Record<string, number>)?.total ?? 0;
       }
     }
   }

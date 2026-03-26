@@ -50,10 +50,8 @@ export function killAllAgents(runDir: string, agents: ModelSpec[], markCancelled
       // PID file missing or unreadable — agent may not have started
     }
     if (markCancelled) {
-      try { fs.accessSync(paths.done); } catch {
-        // No .done file — write one
-        try { fs.writeFileSync(paths.done, "cancelled"); } catch {}
-      }
+      // Write-once: don't overwrite existing .done markers
+      try { fs.writeFileSync(paths.done, "cancelled", { flag: "wx" }); } catch {}
     }
   }
 }

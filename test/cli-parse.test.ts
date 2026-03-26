@@ -124,8 +124,14 @@ describe("parseArgs command-in-prompt safety", () => {
     assert.equal(r.prompt, "check the status of this");
   });
 
-  it("first token 'watch' as separate arg IS a command", () => {
+  it("'watch out for bugs' is implicit ask (watch + non-runid args)", () => {
     const r = parseArgs(argv("watch", "out", "for", "bugs"));
+    assert.equal(r.command, "ask");
+    assert.ok(r.prompt.includes("watch"));
+  });
+
+  it("'watch' alone is the watch command", () => {
+    const r = parseArgs(argv("watch"));
     assert.equal(r.command, "watch");
   });
 
@@ -156,5 +162,30 @@ describe("parseArgs --timeout 0", () => {
   it("accepts --timeout 0 to disable timeout", () => {
     const r = parseArgs(argv("ask", "--timeout", "0", "test"));
     assert.equal(r.timeout, 0);
+  });
+});
+
+describe("parseArgs ambiguous command words", () => {
+  it("'status update on project' is implicit ask, not status command", () => {
+    const r = parseArgs(argv("status", "update", "on", "project"));
+    assert.equal(r.command, "ask");
+    assert.ok(r.prompt.includes("status"));
+  });
+
+  it("'status 20260325-123456-abcd' is the status command with run-id", () => {
+    const r = parseArgs(argv("status", "20260325-123456-abcd1234"));
+    assert.equal(r.command, "status");
+    assert.equal(r.runId, "20260325-123456-abcd1234");
+  });
+
+  it("'list' alone is the list command", () => {
+    const r = parseArgs(argv("list"));
+    assert.equal(r.command, "list");
+  });
+
+  it("'cleanup the repo' is implicit ask, not cleanup command", () => {
+    const r = parseArgs(argv("cleanup", "the", "repo"));
+    assert.equal(r.command, "ask");
+    assert.ok(r.prompt.includes("cleanup"));
   });
 });

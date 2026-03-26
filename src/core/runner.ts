@@ -108,6 +108,8 @@ export function spawnWorker(
 
   const pid = child.pid;
   fs.writeFileSync(paths.pid, String(pid));
+  // Safe to close parent's FD copies: Node.js dup()s them into the child at spawn time,
+  // so the child has its own independent file descriptors for stdout/stderr.
   fs.closeSync(streamFd);
   fs.closeSync(errFd);
 

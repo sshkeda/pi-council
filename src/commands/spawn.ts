@@ -33,9 +33,7 @@ export function spawn(prompt: string, opts: SpawnOptions = {}): string {
       // Write .done markers for all agents so results/watch don't hang
       for (const m of models) {
         const p = agentPaths(runDir, m.id);
-        try { fs.accessSync(p.done); } catch {
-          try { fs.writeFileSync(p.done, "1"); } catch {}
-        }
+        try { fs.writeFileSync(p.done, "1", { flag: "wx" }); } catch {}
       }
       throw err;
     }

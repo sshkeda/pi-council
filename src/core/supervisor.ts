@@ -29,15 +29,19 @@ const child = spawn("pi", piArgs, {
 
 let killed = false;
 
-// Forward termination signals to the pi child
-process.on("SIGTERM", () => {
+// Forward termination signals to the pi child, with SIGKILL escalation.
+// This ensures the pi child dies even if the supervisor is about to be SIGKILL'd.
+function terminateChild(): void {
   killed = true;
   try { child.kill("SIGTERM"); } catch {}
-});
-process.on("SIGINT", () => {
-  killed = true;
-  try { child.kill("SIGINT"); } catch {}
-});
+  // Escalate to SIGKILL quickly — we may be SIGKILL'd ourselves in ~2s
+  setTimeout(() => {
+    try { child.kill("SIGKILL"); } catch {}
+  }, 1000).unref();
+}
+
+process.on("SIGTERM", terminateChild);
+process.on("SIGINT", terminateChild);
 
 // Enforce timeout
 let timer: NodeJS.Timeout | undefined;

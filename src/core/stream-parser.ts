@@ -185,11 +185,14 @@ export function parseStream(filePath: string): ParsedStream {
     fs.closeSync(fd);
   }
 
-  // Update cache
+  // Only cache completed files (with .done marker). Actively streaming files
+  // change too rapidly for mtime-based cache invalidation to be reliable.
+  const donePath = filePath.replace(/\.jsonl$/, ".done");
   try {
+    fs.accessSync(donePath); // throws if no .done
     const stat = fs.statSync(filePath);
     cacheSet(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, result });
-  } catch { /* best effort */ }
+  } catch { /* still streaming or stat failed — don't cache */ }
 
   return result;
 }

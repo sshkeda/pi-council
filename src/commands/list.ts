@@ -4,12 +4,14 @@ import { getRunsDir, getLatestFile, loadConfig } from "../core/config.js";
 import { loadMeta, refreshRun, type WorkerState } from "../core/run-state.js";
 import { bold, dim, green, yellow } from "../util/format.js";
 
-/** Compute a human-readable status string from worker states. */
+/** Compute a human-readable status string from worker states. Pads BEFORE colorizing to avoid ANSI-aware padding issues. */
 function computeStatusStr(total: number, doneCount: number, failedCount: number): string {
   if (doneCount === total) {
-    return failedCount > 0 ? yellow(`${total - failedCount}/${total} ok`) : green("done");
+    const raw = failedCount > 0 ? `${total - failedCount}/${total} ok` : "done";
+    return failedCount > 0 ? yellow(raw.padEnd(10)) : green(raw.padEnd(10));
   }
-  return yellow(`${doneCount}/${total}`);
+  const raw = `${doneCount}/${total}`;
+  return yellow(raw.padEnd(10));
 }
 
 export function list(): void {
@@ -62,7 +64,7 @@ export function list(): void {
     const promptPreview = meta.prompt.replace(/\n/g, " ").slice(0, 40);
 
     process.stderr.write(
-      `${dim(dir)}${marker}  ${statusStr.padEnd(12)} ${dim(`${total} models`).padEnd(16)} ${promptPreview}\n`,
+      `${dim(dir)}${marker}  ${statusStr} ${dim(`${total} models`.padEnd(12))} ${promptPreview}\n`,
     );
   }
 }

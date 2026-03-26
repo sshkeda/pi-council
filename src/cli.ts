@@ -52,10 +52,23 @@ export function parseArgs(argv: string[]): { command: string; runId?: string; mo
       i++;
       while (i < args.length) { rest.push(args[i]); i++; }
     } else if (!command && rest.length === 0 && KNOWN_COMMANDS.has(args[i])) {
-      // Only match commands as the FIRST non-flag token.
-      // This prevents prompts like "check the status of X" from being parsed as the "status" command.
-      command = args[i];
-      i++;
+      // Only match as command if:
+      // - It's a prompt-taking command (ask, spawn) — always safe
+      // - OR it's a non-prompt command AND the next arg looks like a run-id or is absent
+      const cmd = args[i];
+      const nextArg = args[i + 1];
+      const isPromptCmd = cmd === "ask" || cmd === "spawn";
+      const isNonPromptCmd = ["status", "results", "watch", "cancel", "cleanup", "list", "help", "version"].includes(cmd);
+      const nextLooksLikeRunId = !nextArg || nextArg.startsWith("--") || /^\d{8}-/.test(nextArg);
+
+      if (isPromptCmd || (isNonPromptCmd && nextLooksLikeRunId)) {
+        command = cmd;
+        i++;
+      } else {
+        // "status update on project" → treat as implicit ask
+        rest.push(args[i]);
+        i++;
+      }
     } else {
       rest.push(args[i]);
       i++;
@@ -135,7 +148,7 @@ async function main(): Promise<void> {
       cleanup(runId);
       break;
     case "list":
-      await list();
+      list();
       break;
     case "help":
       printHelp();

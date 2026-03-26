@@ -42,11 +42,12 @@ export function loadMeta(runDir: string): RunMeta | null {
 /**
  * Write a .done marker file. Logs to stderr on failure instead of swallowing.
  */
+/** Write-once .done marker. Uses exclusive create to avoid overwriting cancel/timeout markers. */
 function writeDoneMarker(donePath: string, content: string): void {
   try {
-    fs.writeFileSync(donePath, content);
-  } catch (err) {
-    process.stderr.write(`⚠️  Failed to write .done marker (${donePath}): ${(err as Error).message}\n`);
+    fs.writeFileSync(donePath, content, { flag: "wx" });
+  } catch {
+    // EEXIST = already written (expected race with cancel/timeout), other errors = best effort
   }
 }
 

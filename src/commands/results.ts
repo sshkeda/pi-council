@@ -25,7 +25,7 @@ function waitForCompletion(runDir: string, meta: RunMeta): Promise<void> {
       resolve();
     };
 
-    const onSigint = () => { finish(); };
+    const onSigint = () => { process.exitCode = 130; finish(); };
     process.once("SIGINT", onSigint);
 
     try {
@@ -70,7 +70,7 @@ export async function results(runId?: string, wait = true): Promise<void> {
   }
 
   // Print results
-  const states = await refreshRun(runDir, meta.agents, config.stall_seconds);
+  const states = refreshRun(runDir, meta.agents, config.stall_seconds);
 
   let succeeded = 0;
   let failed = 0;

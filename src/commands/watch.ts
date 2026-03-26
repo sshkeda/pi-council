@@ -43,7 +43,7 @@ export async function watch(runId?: string): Promise<void> {
       resolve();
     };
 
-    const onSigint = () => { done(); };
+    const onSigint = () => { process.exitCode = 130; done(); };
     process.once("SIGINT", onSigint);
 
     try {

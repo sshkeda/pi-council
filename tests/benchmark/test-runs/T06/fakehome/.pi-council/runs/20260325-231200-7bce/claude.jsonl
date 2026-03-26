@@ -1,0 +1,6 @@
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Good line before corruption from claude."}]}}
+this is not valid json at all
+{incomplete json
+
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Recovered after bad lines."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Final answer from claude despite malformed lines in stream."}],"stopReason":"stop","usage":{"input":100,"output":200,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.01}}}}

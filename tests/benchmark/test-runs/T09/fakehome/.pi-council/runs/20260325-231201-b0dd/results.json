@@ -1,0 +1,22 @@
+{
+  "runId": "20260325-231201-b0dd",
+  "prompt": "Usage accumulation test",
+  "completedAt": 1774494721025,
+  "workers": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test",
+      "status": "done",
+      "finalText": "Final answer from claude with accumulated usage across 3 message_end events.",
+      "errorMessage": null,
+      "usage": {
+        "input": 450,
+        "output": 850,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.04
+      }
+    }
+  ]
+}

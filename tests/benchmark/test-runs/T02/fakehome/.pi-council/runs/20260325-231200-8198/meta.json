@@ -1,0 +1,18 @@
+{
+  "runId": "20260325-231200-8198",
+  "prompt": "Test question",
+  "startedAt": 1774494720763,
+  "agents": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test"
+    },
+    {
+      "id": "grok",
+      "provider": "xai",
+      "model": "grok-test"
+    }
+  ],
+  "cwd": "/Users/sshkeda/Documents/GitHub/pi-council"
+}

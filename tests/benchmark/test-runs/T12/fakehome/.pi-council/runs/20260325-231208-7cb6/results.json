@@ -1,0 +1,22 @@
+{
+  "runId": "20260325-231208-7cb6",
+  "prompt": "Second run",
+  "completedAt": 1774494728844,
+  "workers": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test",
+      "status": "done",
+      "finalText": "Final answer from claude: The council approach is effective for surfacing disagreement. Each model brings unique strengths.",
+      "errorMessage": null,
+      "usage": {
+        "input": 100,
+        "output": 200,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01
+      }
+    }
+  ]
+}

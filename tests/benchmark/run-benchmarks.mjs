@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const MOCK_PI = path.join(__dirname, "mock-pi");
-const CLI_ENTRY = path.join(PROJECT_ROOT, "dist/cli.js");
+const CLI_ENTRY = path.join(PROJECT_ROOT, "dist/src/cli.js");
 const TEST_ROOT = path.join(__dirname, "test-runs");
 
 // Ensure built

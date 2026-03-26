@@ -1,0 +1,28 @@
+{
+  "runId": "20260325-231214-56af",
+  "prompt": "Crash test",
+  "startedAt": 1774494734215,
+  "agents": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test"
+    },
+    {
+      "id": "gpt",
+      "provider": "openai",
+      "model": "gpt-test"
+    },
+    {
+      "id": "gemini",
+      "provider": "google",
+      "model": "gemini-test"
+    },
+    {
+      "id": "grok",
+      "provider": "xai",
+      "model": "grok-test"
+    }
+  ],
+  "cwd": "/Users/sshkeda/Documents/GitHub/pi-council"
+}

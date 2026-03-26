@@ -1,0 +1,67 @@
+{
+  "runId": "20260325-231200-8045",
+  "prompt": "What is 2+2?",
+  "completedAt": 1774494720738,
+  "workers": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test",
+      "status": "done",
+      "finalText": "Final answer from claude: The council approach is effective for surfacing disagreement. Each model brings unique strengths.",
+      "errorMessage": null,
+      "usage": {
+        "input": 100,
+        "output": 200,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01
+      }
+    },
+    {
+      "id": "gpt",
+      "provider": "openai",
+      "model": "gpt-test",
+      "status": "done",
+      "finalText": "Final answer from gpt: The council approach is effective for surfacing disagreement. Each model brings unique strengths.",
+      "errorMessage": null,
+      "usage": {
+        "input": 100,
+        "output": 200,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01
+      }
+    },
+    {
+      "id": "gemini",
+      "provider": "google",
+      "model": "gemini-test",
+      "status": "done",
+      "finalText": "Final answer from gemini: The council approach is effective for surfacing disagreement. Each model brings unique strengths.",
+      "errorMessage": null,
+      "usage": {
+        "input": 100,
+        "output": 200,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01
+      }
+    },
+    {
+      "id": "grok",
+      "provider": "xai",
+      "model": "grok-test",
+      "status": "done",
+      "finalText": "Final answer from grok: The council approach is effective for surfacing disagreement. Each model brings unique strengths.",
+      "errorMessage": null,
+      "usage": {
+        "input": 100,
+        "output": 200,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01
+      }
+    }
+  ]
+}

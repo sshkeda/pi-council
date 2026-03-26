@@ -1,0 +1,2 @@
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Starting analysis as gpt..."}]}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"This is partial output that never completes."}]}}

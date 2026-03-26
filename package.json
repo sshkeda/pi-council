@@ -60,20 +60,20 @@
     "build": "tsc",
     "prepublishOnly": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts",
-    "test:benchmark": "bash tests/benchmark/runner.sh",
-    "test": "bash tests/benchmark/runner.sh"
+    "test:benchmark": "node tests/benchmark/run-benchmarks.mjs",
+    "test": "node tests/benchmark/run-benchmarks.mjs"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "tsx": "^4.0.0",
-    "@types/node": "^22.0.0",
-    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
-    "@sinclair/typebox": "*"
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
   }
 }

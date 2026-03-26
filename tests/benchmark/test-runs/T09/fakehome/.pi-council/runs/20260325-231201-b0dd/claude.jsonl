@@ -1,0 +1,6 @@
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"First pass analysis..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"First pass complete, calling tool"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":100,"output":200,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Second pass with tool results..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Second pass, calling another tool"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":150,"output":250,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Final synthesis..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Final answer from claude with accumulated usage across 3 message_end events."}],"stopReason":"stop","usage":{"input":200,"output":400,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.03}}}}

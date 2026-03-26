@@ -1,0 +1,13 @@
+{
+  "runId": "20260325-231200-ca1b",
+  "prompt": "Tool use test",
+  "startedAt": 1774494720983,
+  "agents": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test"
+    }
+  ],
+  "cwd": "/Users/sshkeda/Documents/GitHub/pi-council"
+}

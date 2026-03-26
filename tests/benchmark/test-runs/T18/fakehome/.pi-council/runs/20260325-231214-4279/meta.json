@@ -1,0 +1,18 @@
+{
+  "runId": "20260325-231214-4279",
+  "prompt": "Silent crash test",
+  "startedAt": 1774494734251,
+  "agents": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test"
+    },
+    {
+      "id": "gpt",
+      "provider": "openai",
+      "model": "gpt-test"
+    }
+  ],
+  "cwd": "/Users/sshkeda/Documents/GitHub/pi-council"
+}

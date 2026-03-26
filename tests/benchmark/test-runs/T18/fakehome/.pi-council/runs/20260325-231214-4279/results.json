@@ -1,0 +1,37 @@
+{
+  "runId": "20260325-231214-4279",
+  "prompt": "Silent crash test",
+  "completedAt": 1774494734259,
+  "workers": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test",
+      "status": "done",
+      "finalText": "Starting work as claude...",
+      "errorMessage": null,
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0
+      }
+    },
+    {
+      "id": "gpt",
+      "provider": "openai",
+      "model": "gpt-test",
+      "status": "done",
+      "finalText": "Final answer from gpt: The council approach is effective for surfacing disagreement. Each model brings unique strengths.",
+      "errorMessage": null,
+      "usage": {
+        "input": 100,
+        "output": 200,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01
+      }
+    }
+  ]
+}

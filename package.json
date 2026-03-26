@@ -46,8 +46,12 @@
     "developer-tools"
   ],
   "pi": {
-    "skills": ["./skills"],
-    "extensions": ["./extensions"]
+    "skills": [
+      "./skills"
+    ],
+    "extensions": [
+      "./extensions"
+    ]
   },
   "engines": {
     "node": ">=22"
@@ -55,7 +59,9 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "rm -rf dist && tsc",
-    "dev": "node --import tsx src/cli.ts"
+    "dev": "node --import tsx src/cli.ts",
+    "test:benchmark": "bash tests/benchmark/runner.sh",
+    "test": "bash tests/benchmark/runner.sh"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",

@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+#
+# Mock `pi` binary for deterministic pi-council testing.
+#
+# Reads --model arg to identify which model, then looks up behavior from env:
+#   MOCK_BEHAVIOR_<modelid>=<behavior>    (per-model)
+#   MOCK_BEHAVIOR=<behavior>              (fallback for all)
+#
+# Behaviors:
+#   success       - normal output with message_update + message_end (stop)
+#   error         - message_end with stopReason=error
+#   partial       - message_update only, no message_end (simulates crash)
+#   crash         - exit 1 immediately with no JSONL
+#   slow:<secs>   - success but after sleeping <secs> seconds
+#   stall:<secs>  - write one event, sleep <secs>, then exit (no message_end)
+#   large:<count> - emit <count> message_update events, then success end
+#   malformed     - mix of valid JSONL and garbage
+#   tooluse:<n>   - simulate <n> tool call rounds, then final answer
+#   multiend      - multiple message_end events (usage accumulation test)
+#   empty         - exit 0 with no output at all
+#   silent_crash  - write partial, then exit 1
+
+set -euo pipefail
+
+# Parse args
+MODEL_ID=""
+PROVIDER=""
+PROMPT=""
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    --model)    MODEL_ID="$arg" ;;
+    --provider) PROVIDER="$arg" ;;
+  esac
+  prev="$arg"
+done
+
+# The last positional arg is the prompt (after all flags)
+# We just grab it for reference in output
+for arg in "$@"; do
+  if [[ "$arg" != -* && "$prev" != "--mode" && "$prev" != "--provider" && "$prev" != "--model" && "$prev" != "--tools" && "$prev" != "--append-system-prompt" ]]; then
+    PROMPT="$arg"
+  fi
+  prev="$arg"
+done
+
+# Determine model short name (extract from model id like "claude-test" -> "claude")
+# For per-model behavior lookup, try the full MODEL_ID first, then provider
+SHORT_ID="${MODEL_ID%%-*}"
+
+# Look up behavior: MOCK_BEHAVIOR_claude > MOCK_BEHAVIOR
+BEHAVIOR_VAR="MOCK_BEHAVIOR_${SHORT_ID}"
+BEHAVIOR="${!BEHAVIOR_VAR:-${MOCK_BEHAVIOR:-success}}"
+
+# Helper: emit a message_update event
+emit_update() {
+  local text="$1"
+  printf '{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"%s"}]}}\n' "$text"
+}
+
+# Helper: emit a message_end with stop
+emit_end_stop() {
+  local text="$1"
+  local input="${2:-100}"
+  local output="${3:-200}"
+  local cost="${4:-0.01}"
+  printf '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"%s"}],"stopReason":"stop","usage":{"input":%s,"output":%s,"cacheRead":0,"cacheWrite":0,"cost":{"total":%s}}}}\n' "$text" "$input" "$output" "$cost"
+}
+
+# Helper: emit message_end with toolUse stop + toolCall content
+emit_end_tooluse() {
+  local text="$1"
+  local input="${2:-50}"
+  local output="${3:-100}"
+  printf '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"%s"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":%s,"output":%s,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}\n' "$text" "$input" "$output"
+}
+
+# Helper: emit message_end with error
+emit_end_error() {
+  local msg="$1"
+  printf '{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"%s","usage":{"input":10,"output":0,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.001}}}}\n' "$msg"
+}
+
+case "$BEHAVIOR" in
+
+  success)
+    emit_update "Thinking about this question as $SHORT_ID..."
+    emit_end_stop "Final answer from $SHORT_ID: The council approach is effective for surfacing disagreement. Each model brings unique strengths." 100 200 0.01
+    ;;
+
+  error)
+    emit_end_error "API rate limit exceeded for $SHORT_ID"
+    exit 0  # pi still exits 0 on API errors, it's in the JSONL
+    ;;
+
+  partial)
+    emit_update "Starting analysis as $SHORT_ID..."
+    emit_update "This is partial output that never completes."
+    # No message_end — simulates stream cut off
+    ;;
+
+  crash)
+    echo "Fatal: provider $PROVIDER unreachable" >&2
+    exit 1
+    ;;
+
+  slow:*)
+    DELAY="${BEHAVIOR#slow:}"
+    emit_update "Thinking slowly as $SHORT_ID..."
+    sleep "$DELAY"
+    emit_end_stop "Slow but complete answer from $SHORT_ID after ${DELAY}s delay." 100 200 0.01
+    ;;
+
+  stall:*)
+    DELAY="${BEHAVIOR#stall:}"
+    emit_update "Starting work as $SHORT_ID, then will stall..."
+    sleep "$DELAY"
+    # Exit without message_end
+    ;;
+
+  large:*)
+    COUNT="${BEHAVIOR#large:}"
+    emit_update "Beginning large output from $SHORT_ID..."
+    for ((i=1; i<=COUNT; i++)); do
+      emit_update "Event $i/$COUNT: Processing chunk $i with detailed analysis from $SHORT_ID. This line is padded to simulate realistic output length for benchmarking purposes."
+    done
+    emit_end_stop "Large output complete from $SHORT_ID. Processed $COUNT events successfully." 500 2000 0.05
+    ;;
+
+  malformed)
+    emit_update "Good line before corruption from $SHORT_ID."
+    echo "this is not valid json at all"
+    echo "{incomplete json"
+    echo ""
+    printf '{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Recovered after bad lines."}]}}\n'
+    emit_end_stop "Final answer from $SHORT_ID despite malformed lines in stream." 100 200 0.01
+    ;;
+
+  tooluse:*)
+    ROUNDS="${BEHAVIOR#tooluse:}"
+    for ((i=1; i<=ROUNDS; i++)); do
+      emit_update "Tool round $i/$ROUNDS: analyzing..."
+      emit_end_tooluse "Calling tool round $i" 50 100
+      # Simulate tool result coming back (in real pi, this is message_update with tool result)
+      emit_update "Tool result for round $i received."
+    done
+    # Final answer
+    emit_end_stop "Final answer from $SHORT_ID after $ROUNDS tool rounds." 100 300 0.02
+    ;;
+
+  multiend)
+    # Multiple message_end events — tests usage accumulation
+    emit_update "First pass analysis..."
+    emit_end_tooluse "First pass complete, calling tool" 100 200
+    emit_update "Second pass with tool results..."
+    emit_end_tooluse "Second pass, calling another tool" 150 250
+    emit_update "Final synthesis..."
+    emit_end_stop "Final answer from $SHORT_ID with accumulated usage across 3 message_end events." 200 400 0.03
+    ;;
+
+  empty)
+    # Exit successfully but produce nothing
+    exit 0
+    ;;
+
+  silent_crash)
+    emit_update "Starting work as $SHORT_ID..."
+    exit 1
+    ;;
+
+  *)
+    echo "Unknown mock behavior: $BEHAVIOR" >&2
+    exit 1
+    ;;
+esac

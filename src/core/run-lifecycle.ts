@@ -35,3 +35,25 @@ export function createRun(prompt: string, models: ModelSpec[], cwd: string): Cre
 
   return { runId, runDir, meta };
 }
+
+/**
+ * Kill all agent workers for a run. Reads PIDs from .pid files and sends SIGTERM.
+ * Optionally marks unfinished agents as cancelled by writing .done markers.
+ */
+export function killAllAgents(runDir: string, agents: ModelSpec[], markCancelled = false): void {
+  for (const agent of agents) {
+    const paths = agentPaths(runDir, agent.id);
+    try {
+      const raw = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
+      if (Number.isFinite(raw)) killPid(raw);
+    } catch {
+      // PID file missing or unreadable — agent may not have started
+    }
+    if (markCancelled) {
+      try { fs.accessSync(paths.done); } catch {
+        // No .done file — write one
+        try { fs.writeFileSync(paths.done, "cancelled"); } catch {}
+      }
+    }
+  }
+}

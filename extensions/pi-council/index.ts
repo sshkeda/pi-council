@@ -1,35 +1,20 @@
 /**
  * pi-council extension — registers spawn_council and cancel_council tools.
  *
- * Imports from shared core via relative paths. This is necessary during development
- * because TypeScript doesn't resolve self-referencing package exports. When installed
- * as an npm package, the exports field in package.json provides clean import paths
- * (e.g., "pi-council/core/config").
+ * Uses CouncilSession from shared core for orchestration — same logic as the CLI.
+ * Only the UI integration (pi extension status, followUp delivery) is extension-specific.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import * as fs from "node:fs";
-import * as path from "node:path";
 
-// Shared core — single source of truth (relative paths required for TS dev, see module docstring)
 import { loadConfig, resolveModels, type ModelSpec } from "../../src/core/config.js";
-import { spawnWorker, agentPaths } from "../../src/core/runner.js";
-import { parseStream } from "../../src/core/stream-parser.js";
 import { createRun } from "../../src/core/run-lifecycle.js";
-
-interface AgentResult {
-  id: string;
-  model: string;
-  output: string;
-  exitCode: number | null;
-  finished: boolean;
-}
+import { CouncilSession } from "../../src/core/council-session.js";
 
 export default function (pi: ExtensionAPI) {
-  // Track active councils so we can cancel them.
-  // Keyed by runId — entries are removed when the council completes or is cancelled.
-  const activeRuns = new Map<string, { children: import("node:child_process").ChildProcess[]; runDir: string; cancelled: boolean }>();
+  // Track active sessions so we can cancel them
+  const activeSessions = new Map<string, CouncilSession>();
 
   pi.registerTool({
     name: "cancel_council",
@@ -43,32 +28,20 @@ export default function (pi: ExtensionAPI) {
       let targetId = params.runId;
 
       if (!targetId) {
-        // Cancel most recent active council
-        const keys = [...activeRuns.keys()];
+        const keys = [...activeSessions.keys()];
         if (keys.length === 0) {
           return { content: [{ type: "text", text: "No active councils to cancel." }], details: {} };
         }
         targetId = keys[keys.length - 1];
       }
 
-      const run = activeRuns.get(targetId);
-      if (!run) {
+      const session = activeSessions.get(targetId);
+      if (!session) {
         return { content: [{ type: "text", text: `No active council with ID: ${targetId}` }], details: {} };
       }
 
-      // Mark as cancelled BEFORE killing so handleFinish won't deliver results
-      run.cancelled = true;
-      for (const child of run.children) {
-        try {
-          child.kill("SIGTERM");
-        } catch (err) {
-          // ESRCH = process already exited — expected race condition, only log unexpected errors
-          if ((err as NodeJS.ErrnoException).code !== "ESRCH") {
-            process.stderr.write(`⚠️  Failed to kill child: ${(err as Error).message}\n`);
-          }
-        }
-      }
-      activeRuns.delete(targetId);
+      session.cancel();
+      activeSessions.delete(targetId);
 
       return {
         content: [{ type: "text", text: `Cancelled council: ${targetId}` }],
@@ -108,225 +81,83 @@ export default function (pi: ExtensionAPI) {
       try {
         models = resolveModels(config, params.models);
       } catch (err) {
-        // Surface the actual validation error (e.g., "Unknown model(s): xyz. Available: ...")
-        return {
-          content: [{ type: "text", text: (err as Error).message }],
-          details: {},
-        };
+        return { content: [{ type: "text", text: (err as Error).message }], details: {} };
       }
 
       if (models.length === 0) {
-        return {
-          content: [{ type: "text", text: "No valid models selected." }],
-          details: {},
-        };
+        return { content: [{ type: "text", text: "No valid models selected." }], details: {} };
       }
 
       const { runId, runDir } = createRun(params.question, models, ctx.cwd);
 
-      // Use config timeout (default 300s) — prevents agents from running forever
-      const timeoutMs = config.timeout_seconds > 0 ? config.timeout_seconds * 1000 : 0;
-
-      const results: AgentResult[] = models.map((m) => ({
-        id: m.id,
-        model: m.model,
-        output: "",
-        exitCode: null,
-        finished: false,
-      }));
-
-      let finishedCount = 0;
       let delivered = false;
-      const children: import("node:child_process").ChildProcess[] = [];
-      const runState = { children, runDir, cancelled: false };
-      activeRuns.set(runId, runState);
 
-      function cleanup(): void {
-        activeRuns.delete(runId);
-        ctx.ui.setStatus("council", undefined);
-      }
-
-      function buildSummary(): string {
-        return results
-          .map((r) => {
-            const icon = r.exitCode === 0 ? "✅" : "❌";
-            return `## ${icon} ${r.id.toUpperCase()} (${r.model})\n\n${r.output || "(no output)"}`;
-          })
-          .join("\n\n---\n\n");
-      }
-
-      function writeArtifacts(summary: string): void {
-        try {
-          fs.writeFileSync(path.join(runDir, "results.md"), `# Council Results\n\n${summary}`);
-          fs.writeFileSync(
-            path.join(runDir, "results.json"),
-            JSON.stringify({
-              runId,
-              prompt: params.question,
-              completedAt: Date.now(),
-              workers: results.map((r) => ({
-                id: r.id,
-                model: r.model,
-                status: r.exitCode === 0 ? "done" : "failed",
-                finalText: r.output,
-                exitCode: r.exitCode,
-              })),
-            }, null, 2),
-          );
-        } catch (err) {
-          process.stderr.write(`⚠️  Failed to write council artifacts: ${(err as Error).message}\n`);
-        }
-      }
-
-      function deliverResults(): void {
-        if (delivered || !isInteractive || runState.cancelled) return;
+      function deliver(content: string): void {
+        if (delivered || !isInteractive) return;
         delivered = true;
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        cleanup();
-        const summary = buildSummary();
-        writeArtifacts(summary);
+        session.dispose();
+        activeSessions.delete(runId);
+        if (isInteractive) ctx.ui.setStatus("council", undefined);
         pi.sendMessage(
-          {
-            customType: "council-result",
-            content: `🏛️ Council results for: "${params.question}"\n\n${summary}`,
-            display: true,
-          },
+          { customType: "council-result", content, display: true },
           { deliverAs: "followUp", triggerTurn: true },
         );
       }
 
-      // Handle AbortSignal — kill children and clean up when tool call is cancelled
+      const session = new CouncilSession({
+        runId, runDir,
+        prompt: params.question,
+        models, config,
+        cwd: ctx.cwd,
+        events: {
+          onFinished(_agent, done, total) {
+            if (isInteractive && !session.isCancelled) {
+              ctx.ui.setStatus("council", `🏛️ Council: ${done}/${total} done`);
+            }
+          },
+          onAllDone() {
+            deliver(`🏛️ Council results for: "${params.question}"\n\n${session.buildSummary()}`);
+          },
+          onTimeout(_agents, secs) {
+            deliver(`🏛️ Council results (⏰ timed out after ${secs}s):\n\n${session.buildSummary()}`);
+          },
+          onCancelled() {
+            // Don't deliver on cancel — user explicitly cancelled
+            activeSessions.delete(runId);
+            if (isInteractive) ctx.ui.setStatus("council", undefined);
+          },
+        },
+      });
+
+      activeSessions.set(runId, session);
+
+      // Handle AbortSignal
       if (signal) {
         signal.addEventListener("abort", () => {
-          runState.cancelled = true;
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-          for (const child of children) {
-            try { child.kill("SIGTERM"); } catch { /* ESRCH: already exited */ }
-          }
-          cleanup();
+          session.cancel();
+          activeSessions.delete(runId);
         }, { once: true });
       }
 
-      for (let i = 0; i < models.length; i++) {
-        const m = models[i];
-
-        let child: import("node:child_process").ChildProcess;
-        try {
-          const result = spawnWorker(runDir, m, params.question, config, ctx.cwd, false);
-          child = result.child;
-        } catch (err) {
-          results[i].finished = true;
-          results[i].exitCode = 1;
-          results[i].output = `spawn error: ${(err as Error).message}`;
-          finishedCount++;
-          if (finishedCount === models.length) {
-            cleanup();
-            deliverResults();
-          }
-          continue;
-        }
-        children.push(child);
-
-        const handleFinish = (code: number | null, error?: string) => {
-          if (results[i].finished) return; // guard: error+close can both fire
-          results[i].finished = true;
-          results[i].exitCode = code;
-
-          if (error) {
-            results[i].output = error;
-          } else {
-            const paths = agentPaths(runDir, m.id);
-            const parsed = parseStream(paths.stream);
-            results[i].output = parsed.finalText || parsed.assistantText;
-          }
-
-          try {
-            fs.writeFileSync(agentPaths(runDir, m.id).done, String(code ?? ""));
-          } catch (err) {
-            process.stderr.write(`⚠️  Failed to write .done for ${m.id}: ${(err as Error).message}\n`);
-          }
-
-          finishedCount++;
-
-          // Don't update UI or deliver if cancelled
-          if (runState.cancelled) return;
-
-          ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${models.length} done`);
-
-          if (finishedCount === models.length) {
-            ctx.ui.setStatus("council", undefined);
-            deliverResults();
-          }
+      const started = session.start();
+      if (!started) {
+        session.dispose();
+        activeSessions.delete(runId);
+        return {
+          content: [{ type: "text", text: "Failed to spawn council agents. Check that 'pi' is installed." }],
+          details: {},
         };
-
-        child.on("error", (err) => handleFinish(1, `spawn error: ${err.message}`));
-        child.on("close", (code) => handleFinish(code, undefined));
       }
 
-      // Enforce max timeout — kill stragglers so councils don't run forever
-      let timeoutTimer: NodeJS.Timeout | undefined;
-      if (timeoutMs > 0) {
-        timeoutTimer = setTimeout(() => {
-          if (runState.cancelled || finishedCount === models.length) return;
-          runState.cancelled = true;
-          for (const child of children) {
-            try { child.kill("SIGTERM"); } catch { /* already exited */ }
-          }
-          // Mark unfinished agents
-          for (let j = 0; j < models.length; j++) {
-            if (!results[j].finished) {
-              results[j].finished = true;
-              results[j].exitCode = 124; // timeout exit code
-              results[j].output = `(timed out after ${config.timeout_seconds}s)`;
-              try { fs.writeFileSync(agentPaths(runDir, models[j].id).done, "124"); } catch {}
-            }
-          }
-          cleanup();
-          // Still deliver partial results
-          delivered = true;
-          const summary = buildSummary();
-          writeArtifacts(summary);
-          if (isInteractive) {
-            pi.sendMessage(
-              {
-                customType: "council-result",
-                content: `🏛️ Council results (⏰ timed out after ${config.timeout_seconds}s):\n\n${summary}`,
-                display: true,
-              },
-              { deliverAs: "followUp", triggerTurn: true },
-            );
-          }
-        }, timeoutMs);
-        timeoutTimer.unref();
-      }
-
-      const modelNames = models.map((m) => m.id).join(", ");
+      const modelNames = session.modelNames;
 
       // Non-interactive: block until done
       if (!isInteractive) {
-        await new Promise<void>((resolve) => {
-          const interval = setInterval(() => {
-            if (finishedCount === models.length || runState.cancelled) {
-              clearInterval(interval);
-              resolve();
-            }
-          }, 500);
-
-          // Also clean up on abort
-          if (signal) {
-            signal.addEventListener("abort", () => {
-              clearInterval(interval);
-              resolve();
-            }, { once: true });
-          }
-        });
-
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        cleanup();
-        const summary = buildSummary();
-        writeArtifacts(summary);
+        await session.waitForCompletion();
+        session.dispose();
+        activeSessions.delete(runId);
         return {
-          content: [{ type: "text", text: `🏛️ Council results:\n\n${summary}` }],
+          content: [{ type: "text", text: `🏛️ Council results:\n\n${session.buildSummary()}` }],
           details: { runId, models: modelNames },
         };
       }

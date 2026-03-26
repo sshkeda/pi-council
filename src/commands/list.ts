@@ -1,8 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getRunsDir, getLatestFile, loadConfig } from "../core/config.js";
-import { loadMeta, refreshRun } from "../core/run-state.js";
+import { loadMeta, refreshRun, type WorkerState } from "../core/run-state.js";
 import { bold, dim, green, yellow } from "../util/format.js";
+
+/** Compute a human-readable status string from worker states. */
+function computeStatusStr(total: number, doneCount: number, failedCount: number): string {
+  if (doneCount === total) {
+    return failedCount > 0 ? yellow(`${total - failedCount}/${total} ok`) : green("done");
+  }
+  return yellow(`${doneCount}/${total}`);
+}
 
 export function list(): void {
   const runsDir = getRunsDir();
@@ -18,7 +26,8 @@ export function list(): void {
   }
 
   const latestFile = getLatestFile();
-  const latest = fs.existsSync(latestFile) ? fs.readFileSync(latestFile, "utf-8").trim() : "";
+  let latest = "";
+  try { latest = fs.readFileSync(latestFile, "utf-8").trim(); } catch {}
   const config = loadConfig();
 
   process.stderr.write(bold("RUN-ID".padEnd(22) + "STATUS".padEnd(12) + "AGENTS".padEnd(10) + "PROMPT") + "\n");
@@ -29,39 +38,24 @@ export function list(): void {
     const meta = loadMeta(runDir);
     if (!meta) continue;
 
-    // Fast-path: use results.json for completed runs (avoids re-parsing all JSONL streams)
-    const resultsPath = path.join(runDir, "results.json");
     let statusStr: string;
     let total: number;
 
-    if (fs.existsSync(resultsPath)) {
-      try {
-        const resultsJson = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
-        const workers = resultsJson.workers ?? [];
-        total = workers.length;
-        const failed = workers.filter((w: { status: string }) => w.status === "failed").length;
-        statusStr = failed > 0 ? yellow(`${total - failed}/${total} ok`) : green("done");
-      } catch {
-        // Corrupted results.json — fall back to full refresh
-        const states = refreshRun(runDir, meta.agents, config.stall_seconds);
-        total = states.length;
-        const done = states.filter((s) => s.status === "done" || s.status === "failed").length;
-        const failed = states.filter((s) => s.status === "failed").length;
-        const allDone = done === total;
-        statusStr = allDone
-          ? (failed > 0 ? yellow(`${done - failed}/${total} ok`) : green("done"))
-          : yellow(`${done}/${total}`);
-      }
-    } else {
-      // Active run — need full refresh
+    // Fast-path: use results.json for completed runs (avoids re-parsing all JSONL streams)
+    const resultsPath = path.join(runDir, "results.json");
+    try {
+      const resultsJson = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+      const workers: Array<{ status: string }> = resultsJson.workers ?? [];
+      total = workers.length;
+      const failed = workers.filter((w) => w.status !== "done").length;
+      statusStr = computeStatusStr(total, total, failed);
+    } catch {
+      // No results.json or corrupted — refresh from live state
       const states = refreshRun(runDir, meta.agents, config.stall_seconds);
       total = states.length;
       const done = states.filter((s) => s.status === "done" || s.status === "failed").length;
       const failed = states.filter((s) => s.status === "failed").length;
-      const allDone = done === total;
-      statusStr = allDone
-        ? (failed > 0 ? yellow(`${done - failed}/${total} ok`) : green("done"))
-        : yellow(`${done}/${total}`);
+      statusStr = computeStatusStr(total, done, failed);
     }
 
     const marker = dir === latest ? " ←" : "";

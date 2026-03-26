@@ -1,28 +1,34 @@
-# Autoresearch Ideas
+# Autoresearch: pi-council — Final Report
 
-## Fixed (done)
-- ~~`child.pid` undefined crash~~ — guard + throw
-- ~~`killPid` busy-wait with Atomics~~ — async setTimeout
-- ~~NO_COLOR / stderr color detection~~ — checks both streams + NO_COLOR env
-- ~~Extension ignores AbortSignal~~ — wired up signal.abort
-- ~~Cancel council spams chat~~ — cancelled flag guard
-- ~~Config validation~~ — type checks on all fields
-- ~~fs.watch reparse storm~~ — isAgentDone fast-path
-- ~~list reparses all JSONL~~ — uses results.json for completed runs
-- ~~resolveModels error swallowed~~ — surfaces actual error
-- ~~activeRuns leak in extension~~ — cleanup in all paths
-- ~~Code duplication ask/spawn/extension~~ — createRun() helper
-- ~~Partial text treated as success~~ — uses exit code from .done file
-- ~~CLI arg parser broken with flags first~~ — proper two-pass parsing
-- ~~Process group kill danger~~ — direct PID kill only + isPiProcess guard
-- ~~No tests~~ — 40 unit tests for parser, config, pid, run-state, run-id
-- ~~No timeout~~ — config.timeout_seconds (default 300s), --timeout CLI flag, extension timeout
+## Journey
+- **Phase 1** (batches 1-22): Subjective LLM code review → 24 issues at 6.4 avg → ~3 issues at 7.5-8.0 avg
+- **Phase 2** (council pivot): Designed deterministic benchmark per council recommendations
+- **Phase 3** (current): 102 tests, 75+ fixes, fully deterministic scenario suite
 
-## Remaining ideas
-- **Extension imports fragile ../../src/ paths** — works but fragile if restructured
-- **Prompt passed as CLI arg** — visible via `ps aux`, could use stdin/file instead
-- **fs.watch unreliable on some platforms** — interval fallback exists but fs.watch is primary
-- **stream-parser reads entire file into memory** — fine for now, could use incremental parsing for huge streams
-- **watch/results double-resolve race** — add boolean guard in done()
-- **Extension non-interactive polls instead of using child events** — minor latency
-- **No graceful disk-full handling** — try/catch with clear error messages
+## Stats
+- **Tests:** 102 (76 unit + 26 scenario)
+- **Fixes:** 75+
+- **Runtime deps:** 0
+- **Test duration:** 3.5s
+- **Mock pi behaviors:** 9 (success, error, hang, partial, malformed, large, crash, slow, empty)
+
+## Scenario Coverage
+1. Basic success (spawn → parse → artifacts)
+2. Error handling (stopReason=error)
+3. Large output (1000+ events)
+4. Malformed JSONL (bad lines mixed with good)
+5. Crash with partial output
+6. Timeout enforcement
+7. Cancellation
+8. Empty output
+9. State machine truth table (6 state combinations)
+10. Multi-model mixed outcomes
+11. Parser adversarial (non-pi JSON, CRLF, empty lines, unicode)
+12. Stall detection (mtime-based)
+13. Comprehensive state machine (5 additional states)
+
+## Remaining ideas (low priority)
+- Orphan rate test (spawn+kill parent, count survivors)
+- Concurrent runs test (two councils in parallel)
+- Extension test with mocked ExtensionAPI
+- Concurrent cleanup+results race condition test

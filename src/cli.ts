@@ -11,7 +11,7 @@ import { watch } from "./commands/watch.js";
 
 const KNOWN_COMMANDS = new Set(["ask", "spawn", "status", "results", "watch", "cancel", "cleanup", "list", "help", "version"]);
 
-function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; timeout?: number; prompt: string } {
+export function parseArgs(argv: string[]): { command: string; runId?: string; models?: string[]; cwd?: string; timeout?: number; prompt: string } {
   const args = argv.slice(2);
 
   let models: string[] | undefined;
@@ -32,11 +32,14 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
       i += 2;
     } else if (args[i] === "--timeout" && i + 1 < args.length) {
       const parsed = parseInt(args[i + 1], 10);
-      if (Number.isFinite(parsed) && parsed > 0) {
+      if (Number.isFinite(parsed) && parsed >= 0) {
         timeout = parsed;
       } else {
         process.stderr.write(`Warning: invalid --timeout value "${args[i + 1]}", ignoring\n`);
       }
+      i += 2;
+    } else if (args[i] === "--run-id" && i + 1 < args.length) {
+      runId = args[i + 1];
       i += 2;
     } else if (args[i] === "--help" || args[i] === "-h") {
       command = "help";
@@ -44,7 +47,13 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
     } else if (args[i] === "--version" || args[i] === "-v") {
       command = "version";
       i++;
-    } else if (!command && KNOWN_COMMANDS.has(args[i])) {
+    } else if (args[i] === "--") {
+      // End of flags — everything after this is prompt text
+      i++;
+      while (i < args.length) { rest.push(args[i]); i++; }
+    } else if (!command && rest.length === 0 && KNOWN_COMMANDS.has(args[i])) {
+      // Only match commands as the FIRST non-flag token.
+      // This prevents prompts like "check the status of X" from being parsed as the "status" command.
       command = args[i];
       i++;
     } else {
@@ -60,7 +69,7 @@ function parseArgs(argv: string[]): { command: string; runId?: string; models?: 
 
   // For status/results/cleanup/watch, first positional arg might be a run-id (looks like YYYYMMDD-...)
   const prompt = rest.join(" ");
-  if (["status", "results", "cleanup", "cancel", "watch"].includes(command) && rest.length > 0 && /^\d{8}-/.test(rest[0])) {
+  if (!runId && ["status", "results", "cleanup", "cancel", "watch"].includes(command) && rest.length > 0 && /^\d{8}-/.test(rest[0])) {
     runId = rest[0];
   }
 
@@ -85,6 +94,7 @@ Flags:
   --models claude,gpt,grok    Select which models to run (default: all)
   --cwd /path                  Working directory for agents
   --timeout 300                Timeout in seconds for ask command (kills agents)
+  --run-id <id>                Specify run ID for status/results/watch/cancel/cleanup
 
 Examples:
   pi-council ask "Should I refactor this module?"
@@ -107,9 +117,11 @@ async function main(): Promise<void> {
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
       spawn(prompt, { models, cwd });
       break;
-    case "status":
-      await status(runId);
+    case "status": {
+      const allDone = status(runId);
+      if (!allDone) process.exitCode = 2; // non-zero if still running
       break;
+    }
     case "results":
       await results(runId);
       break;
@@ -139,7 +151,13 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`Error: ${err.message}\n`);
-  process.exitCode = 1;
-});
+// Only run main() when executed directly, not when imported for testing
+// Only run main() when executed directly, not when imported for testing
+const scriptName = process.argv[1] ?? "";
+const isDirectRun = scriptName.includes("cli.js") || scriptName.includes("cli.ts") || scriptName.includes("pi-council");
+if (isDirectRun) {
+  main().catch((err) => {
+    process.stderr.write(`Error: ${err.message}\n`);
+    process.exitCode = 1;
+  });
+}

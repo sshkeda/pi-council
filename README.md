@@ -106,7 +106,7 @@ Configure in `~/.pi-council/config.json` (auto-created on first run with default
 - **Pi extension**: returns immediately, auto-notifies via `followUp` when done
 - **CLI `ask`**: waits via `child.on('close')` — zero polling
 - **CLI `watch`**: uses `fs.watch` — event-driven, prints each result the instant it lands
-- No timeout — agents handle their own limits natively
+- Default 600s timeout — agents are killed if they exceed it (configurable via `timeout_seconds` in config or `--timeout` flag)
 
 ## Pi Skill
 

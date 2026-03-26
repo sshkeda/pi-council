@@ -60,7 +60,7 @@
     "build": "tsc",
     "prepublishOnly": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts test/scenarios/*.test.ts"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",

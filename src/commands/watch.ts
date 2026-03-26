@@ -44,7 +44,7 @@ export async function watch(runId?: string): Promise<void> {
     };
 
     const onSigint = () => { done(); };
-    process.on("SIGINT", onSigint);
+    process.once("SIGINT", onSigint);
 
     try {
       watcher = fs.watch(runDir, () => {
@@ -52,16 +52,12 @@ export async function watch(runId?: string): Promise<void> {
         if (remaining.size === 0) done();
       });
 
-      // Handle watcher errors (e.g., run directory deleted while watching)
-      watcher.on("error", (err) => {
-        process.stderr.write(`⚠️  Watcher error: ${err.message}\n`);
-        done();
+      watcher.on("error", () => {
+        // Watcher failed — polling fallback below will handle it
+        if (watcher) { watcher.close(); watcher = null; }
       });
-    } catch (err) {
-      // fs.watch can throw if directory doesn't exist
-      process.stderr.write(`⚠️  Cannot watch directory: ${(err as Error).message}\n`);
-      resolve();
-      return;
+    } catch {
+      // fs.watch unavailable — rely entirely on polling fallback below
     }
 
     pidCheck = setInterval(() => {

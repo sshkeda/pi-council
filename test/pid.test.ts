@@ -29,10 +29,10 @@ describe("pidAlive", () => {
 });
 
 describe("isPiProcess", () => {
-  it("returns true for own process (runs under node, which matches)", () => {
-    // Our test process runs under node, which isPiProcess correctly identifies
-    // as a potential pi agent process — this is the safe/conservative behavior
-    assert.equal(isPiProcess(process.pid), true);
+  it("returns false for own process (not a pi agent)", () => {
+    // Our test process runs under node but is NOT a pi agent (no --mode json in args)
+    // isPiProcess now checks for the exact pi invocation pattern
+    assert.equal(isPiProcess(process.pid), false);
   });
 
   it("returns false for nonexistent PID", () => {

@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
-
-/** Maximum bytes to read from a JSONL stream file (50 MB). */
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+import * as readline from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 
 /** Maximum length of a single JSONL line in characters. Lines exceeding this are skipped. */
 const MAX_LINE_LENGTH = 1024 * 1024; // 1 MB
@@ -49,7 +48,96 @@ interface PiEvent {
   message?: PiMessage;
 }
 
+function processLine(line: string, result: ParsedStream): void {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length > MAX_LINE_LENGTH) return;
+
+  let event: PiEvent;
+  try {
+    event = JSON.parse(trimmed) as PiEvent;
+  } catch {
+    return;
+  }
+
+  if (!event || typeof event.type !== "string") return;
+
+  result.events++;
+  const type = event.type;
+  const msg = event.message;
+
+  if (type === "message_update") {
+    if (msg?.role === "assistant") {
+      const texts: string[] = [];
+      for (const part of msg.content ?? []) {
+        if (part.type === "text") texts.push(part.text ?? "");
+      }
+      const joined = texts.join("").trim();
+      if (joined) result.assistantText = joined;
+    }
+  } else if (type === "message_end") {
+    if (msg?.role === "assistant") {
+      const texts: string[] = [];
+      for (const part of msg.content ?? []) {
+        if (part.type === "text") texts.push(part.text ?? "");
+        if (part.type === "toolCall") result.toolCalls++;
+      }
+      const joined = texts.join("").trim();
+
+      const stopReason = msg.stopReason ?? null;
+      if (stopReason === "stop" && joined) {
+        result.finalText = joined;
+        result.assistantText = joined;
+      }
+
+      if (joined) {
+        result.assistantText = joined;
+      }
+
+      result.stopReason = stopReason;
+      result.errorMessage = msg.errorMessage ?? null;
+
+      const u = msg.usage;
+      if (u) {
+        result.usage.input += u.input ?? 0;
+        result.usage.output += u.output ?? 0;
+        result.usage.cacheRead += u.cacheRead ?? 0;
+        result.usage.cacheWrite += u.cacheWrite ?? 0;
+        result.usage.cost += u.cost?.total ?? 0;
+      }
+    }
+  }
+}
+
+/**
+ * Parse a pi JSONL stream file synchronously, line-by-line.
+ * Uses a manual line splitter on a streaming read to avoid loading the entire
+ * file into memory. Handles files of any size without memory spikes.
+ */
+/** Cache parsed results by filepath + mtime to avoid reparsing unchanged files. LRU with max 50 entries. */
+const CACHE_MAX = 50;
+const parseCache = new Map<string, { mtimeMs: number; size: number; result: ParsedStream }>();
+
+function cacheSet(key: string, entry: { mtimeMs: number; size: number; result: ParsedStream }): void {
+  // LRU eviction: delete oldest entries when cache exceeds max size
+  if (parseCache.size >= CACHE_MAX) {
+    const oldest = parseCache.keys().next().value;
+    if (oldest !== undefined) parseCache.delete(oldest);
+  }
+  parseCache.set(key, entry);
+}
+
 export function parseStream(filePath: string): ParsedStream {
+  // Check cache: skip reparsing if file hasn't changed
+  try {
+    const stat = fs.statSync(filePath);
+    const cached = parseCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.result;
+    }
+  } catch {
+    // File doesn't exist or stat failed — parse will handle it
+  }
+
   const result: ParsedStream = {
     assistantText: "",
     finalText: "",
@@ -60,94 +148,78 @@ export function parseStream(filePath: string): ParsedStream {
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
   };
 
-  if (!fs.existsSync(filePath)) return result;
-
-  let raw: string;
+  let fd: number;
   try {
-    // Read up to MAX_FILE_BYTES to prevent memory exhaustion on huge streams
-    const fd = fs.openSync(filePath, "r");
-    try {
-      const stat = fs.fstatSync(fd);
-      const bytesToRead = Math.min(stat.size, MAX_FILE_BYTES);
-      const buf = Buffer.alloc(bytesToRead);
-      fs.readSync(fd, buf, 0, bytesToRead, 0);
-      raw = buf.toString("utf-8");
-    } finally {
-      fs.closeSync(fd);
-    }
+    fd = fs.openSync(filePath, "r");
   } catch {
-    // File may have been removed between existsSync and open — not actionable
     return result;
   }
 
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  try {
+    // Read in 64KB chunks and split into lines manually.
+    // Uses StringDecoder to correctly handle multibyte UTF-8 chars split across chunk boundaries.
+    const chunkSize = 64 * 1024;
+    const buf = Buffer.alloc(chunkSize);
+    const decoder = new StringDecoder("utf-8");
+    let leftover = "";
+    let bytesRead: number;
 
-    // Skip oversized lines to prevent JSON.parse from consuming unbounded memory
-    if (trimmed.length > MAX_LINE_LENGTH) continue;
+    while ((bytesRead = fs.readSync(fd, buf, 0, chunkSize, null)) > 0) {
+      const chunk = leftover + decoder.write(buf.subarray(0, bytesRead));
+      const lines = chunk.split("\n");
 
-    let event: PiEvent;
-    try {
-      event = JSON.parse(trimmed) as PiEvent;
-    } catch {
-      // Malformed JSON line — skip (common with partial writes / truncated streams)
-      continue;
-    }
+      // Last element is incomplete (no trailing newline yet) — save for next chunk
+      leftover = lines.pop() ?? "";
 
-    // Basic structural validation: must have a type string
-    if (!event || typeof event.type !== "string") continue;
-
-    result.events++;
-    const type = event.type;
-    const msg = event.message;
-
-    if (type === "message_update") {
-      if (msg?.role === "assistant") {
-        const texts: string[] = [];
-        for (const part of msg.content ?? []) {
-          if (part.type === "text") texts.push(part.text ?? "");
-        }
-        const joined = texts.join("").trim();
-        // Always track latest assistant text as fallback
-        if (joined) result.assistantText = joined;
-      }
-    } else if (type === "message_end") {
-      if (msg?.role === "assistant") {
-        const texts: string[] = [];
-        for (const part of msg.content ?? []) {
-          if (part.type === "text") texts.push(part.text ?? "");
-          if (part.type === "toolCall") result.toolCalls++;
-        }
-        const joined = texts.join("").trim();
-
-        // Only set finalText from actual final answers (stopReason="stop"),
-        // not from intermediate tool-calling messages (stopReason="toolUse")
-        const stopReason = msg.stopReason ?? null;
-        if (stopReason === "stop" && joined) {
-          result.finalText = joined;
-          result.assistantText = joined;
-        }
-
-        // Always update assistantText as fallback for partial output
-        if (joined) {
-          result.assistantText = joined;
-        }
-
-        result.stopReason = stopReason;
-        result.errorMessage = msg.errorMessage ?? null;
-
-        // Accumulate usage
-        const u = msg.usage;
-        if (u) {
-          result.usage.input += u.input ?? 0;
-          result.usage.output += u.output ?? 0;
-          result.usage.cacheRead += u.cacheRead ?? 0;
-          result.usage.cacheWrite += u.cacheWrite ?? 0;
-          result.usage.cost += u.cost?.total ?? 0;
-        }
+      for (const line of lines) {
+        processLine(line, result);
       }
     }
+
+    // Flush any remaining bytes in the decoder + leftover
+    const remaining = leftover + decoder.end();
+    if (remaining.trim()) {
+      processLine(remaining, result);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  // Update cache
+  try {
+    const stat = fs.statSync(filePath);
+    cacheSet(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, result });
+  } catch { /* best effort */ }
+
+  return result;
+}
+
+/**
+ * Async version of parseStream using Node.js readline for non-blocking parsing.
+ * Use in contexts where blocking the event loop is unacceptable.
+ */
+export async function parseStreamAsync(filePath: string): Promise<ParsedStream> {
+  const result: ParsedStream = {
+    assistantText: "",
+    finalText: "",
+    stopReason: null,
+    errorMessage: null,
+    toolCalls: 0,
+    events: 0,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+  };
+
+  let stream: fs.ReadStream;
+  try {
+    stream = fs.createReadStream(filePath, { encoding: "utf-8" });
+  } catch {
+    return result;
+  }
+
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    processLine(line, result);
   }
 
   return result;

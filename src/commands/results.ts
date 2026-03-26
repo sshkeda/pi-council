@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, getRunsDir } from "../core/config.js";
 import { loadMeta, refreshRun, isAgentDone, type WorkerState, type RunMeta } from "../core/run-state.js";
+import { writeArtifacts as writeRunArtifacts } from "../core/artifacts.js";
 import { resolveRunId } from "./status.js";
 import { dim } from "../util/format.js";
 
@@ -25,22 +26,19 @@ function waitForCompletion(runDir: string, meta: RunMeta): Promise<void> {
     };
 
     const onSigint = () => { finish(); };
-    process.on("SIGINT", onSigint);
+    process.once("SIGINT", onSigint);
 
     try {
       watcher = fs.watch(runDir, () => {
         if (checkAllDone(runDir, meta)) finish();
       });
 
-      // Handle watcher errors (e.g., directory deleted while waiting)
-      watcher.on("error", (err) => {
-        process.stderr.write(`⚠️  Watcher error: ${err.message}\n`);
-        finish();
+      watcher.on("error", () => {
+        // Watcher failed — polling fallback below will handle it
+        if (watcher) { watcher.close(); watcher = null; }
       });
-    } catch (err) {
-      process.stderr.write(`⚠️  Cannot watch directory: ${(err as Error).message}\n`);
-      resolve();
-      return;
+    } catch {
+      // fs.watch unavailable — rely entirely on polling fallback below
     }
 
     // PID liveness check every 2s — for background spawn mode
@@ -83,12 +81,17 @@ export async function results(runId?: string, wait = true): Promise<void> {
     process.stdout.write(`## ${w.id.toUpperCase()} (${w.model})\n`);
     process.stdout.write("═".repeat(60) + "\n");
 
-    if (w.finalText) {
+    if (w.status === "done") {
       succeeded++;
-      process.stdout.write(w.finalText + "\n");
+      process.stdout.write((w.finalText || "(completed with no text output)") + "\n");
     } else {
       failed++;
-      process.stdout.write(`(no output)\nERROR: ${w.errorMessage ?? "empty output"}\n`);
+      if (w.finalText) {
+        process.stdout.write(w.finalText + "\n");
+        process.stdout.write(`ERROR: ${w.errorMessage ?? "agent failed"}\n`);
+      } else {
+        process.stdout.write(`(no output)\nERROR: ${w.errorMessage ?? "empty output"}\n`);
+      }
     }
 
     const u = w.usage;
@@ -100,20 +103,15 @@ export async function results(runId?: string, wait = true): Promise<void> {
 
   process.stderr.write(`${succeeded} succeeded, ${failed} failed\n`);
 
-  // Write results.md
-  let md = `# pi-council results\nRun: ${resolved}\n\n`;
-  md += `Question:\n${meta.prompt}\n\n---\n\n`;
-  for (const w of states) {
-    md += `## ${w.id} — ${w.provider}/${w.model}\n\n`;
-    md += (w.finalText || `(no output: ${w.errorMessage ?? "unknown"})`) + "\n\n---\n\n";
-  }
-  fs.writeFileSync(path.join(runDir, "results.md"), md);
+  // Write artifacts only if they don't exist yet (CouncilSession already writes them for ask/extension).
+  // This is needed for background `spawn` runs where results are viewed for the first time.
+  const resultsJsonPath = path.join(runDir, "results.json");
+  let needsArtifacts = true;
+  try { fs.accessSync(resultsJsonPath); needsArtifacts = false; } catch {}
 
-  // Write results.json
-  const resultsJson = {
+  if (needsArtifacts) writeRunArtifacts(runDir, {
     runId: resolved,
     prompt: meta.prompt,
-    completedAt: Date.now(),
     workers: states.map((w) => ({
       id: w.id,
       provider: w.provider,
@@ -123,8 +121,8 @@ export async function results(runId?: string, wait = true): Promise<void> {
       errorMessage: w.errorMessage,
       usage: w.usage,
     })),
-  };
-  fs.writeFileSync(path.join(runDir, "results.json"), JSON.stringify(resultsJson, null, 2));
+  });
 
-  if (failed > 0) process.exitCode = 1;
+  // Only set exit code if no higher-priority code is already set (e.g., 124=timeout, 130=SIGINT)
+  if (failed > 0 && !process.exitCode) process.exitCode = 1;
 }

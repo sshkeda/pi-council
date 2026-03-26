@@ -31,11 +31,10 @@ export interface RunMeta {
 
 export function loadMeta(runDir: string): RunMeta | null {
   const metaPath = path.join(runDir, "meta.json");
-  if (!fs.existsSync(metaPath)) return null;
   try {
     return JSON.parse(fs.readFileSync(metaPath, "utf-8")) as RunMeta;
   } catch {
-    // Corrupted or partially-written meta.json — treat as missing
+    // Missing, corrupted, or partially-written meta.json — treat as missing
     return null;
   }
 }
@@ -55,12 +54,11 @@ function writeDoneMarker(donePath: string, content: string): void {
  * Parse a PID from a .pid file. Returns null if file is missing, empty, or contains invalid data.
  */
 function readPid(pidPath: string): number | null {
-  if (!fs.existsSync(pidPath)) return null;
   try {
     const raw = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
     return Number.isFinite(raw) ? raw : null;
   } catch {
-    // File may have been removed between existsSync and read — race condition, not actionable
+    // File missing or unreadable — not actionable
     return null;
   }
 }
@@ -72,11 +70,16 @@ function readPid(pidPath: string): number | null {
  */
 export function isAgentDone(runDir: string, model: ModelSpec): boolean {
   const paths = agentPaths(runDir, model.id);
-  if (fs.existsSync(paths.done)) return true;
+  try { fs.accessSync(paths.done); return true; } catch { /* not done yet */ }
 
   // Check PID liveness
   const pid = readPid(paths.pid);
-  if (pid !== null && !pidAlive(pid)) {
+  if (pid === null) {
+    // No PID file — agent may not have spawned yet, or spawn failed.
+    // Don't assume done — let the caller handle this (CouncilSession writes .done on failure).
+    return false;
+  }
+  if (!pidAlive(pid)) {
     // Process exited without writing .done — mark done (side-effect isolated here)
     writeDoneMarker(paths.done, "");
     return true;
@@ -119,31 +122,38 @@ export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: nu
       // Explicit non-zero exit code or "cancelled" — failed even if there's partial text
       status = "failed";
     } else {
-      // No explicit exit code (empty .done file from PID death detection) — fall back to text check
-      status = parsed.finalText || parsed.assistantText ? "done" : "failed";
+      // No explicit exit code (empty .done file from PID death detection).
+      // Check if the stream has a clean stopReason=stop, otherwise assume failure.
+      status = parsed.stopReason === "stop" ? "done" : "failed";
     }
   } else if (isAlive) {
     // Check stall: compare file mtimes against stall_seconds threshold
     let lastMtime = 0;
+    let hasFiles = false;
     for (const p of [paths.stream, paths.err]) {
       try {
         const mtime = fs.statSync(p).mtimeMs;
+        hasFiles = true;
         if (mtime > lastMtime) lastMtime = mtime;
       } catch {
         // File may not exist yet if agent just started — ignore
       }
     }
-    const age = (Date.now() - lastMtime) / 1000;
-    status = age > stallSeconds ? "stalled" : "running";
+    // If no output files exist yet, agent just started — not stalled
+    if (!hasFiles) {
+      status = "running";
+    } else {
+      const age = (Date.now() - lastMtime) / 1000;
+      status = age > stallSeconds ? "stalled" : "running";
+    }
   } else {
     status = "failed";
   }
 
   const errText = (() => {
     try {
-      return fs.existsSync(paths.err) ? fs.readFileSync(paths.err, "utf-8").trim() : "";
+      return fs.readFileSync(paths.err, "utf-8").trim();
     } catch {
-      // .err file may have been removed — not critical
       return "";
     }
   })();

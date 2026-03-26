@@ -6,7 +6,7 @@ const config = {
   models: DEFAULT_MODELS,
   tools: "bash,read",
   stall_seconds: 60,
-  timeout_seconds: 300,
+  timeout_seconds: 600,
   system_prompt: "test",
 };
 

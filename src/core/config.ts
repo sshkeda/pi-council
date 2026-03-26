@@ -18,7 +18,7 @@ export interface Config {
   system_prompt: string;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), ".pi-council");
+const CONFIG_DIR = process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
 const RUNS_DIR = path.join(CONFIG_DIR, "runs");
 const LATEST_FILE = path.join(CONFIG_DIR, "latest-run-id");
@@ -26,7 +26,7 @@ const LATEST_FILE = path.join(CONFIG_DIR, "latest-run-id");
 export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "claude", provider: "anthropic", model: "claude-opus-4-6", note: "Strong at nuanced reasoning" },
   { id: "gpt", provider: "openai-codex", model: "gpt-5.4", note: "Good at structured analysis" },
-  { id: "gemini", provider: "openrouter", model: "google/gemini-3.1-pro", note: "Fast, good at data analysis (via OpenRouter)" },
+  { id: "gemini", provider: "google", model: "gemini-3.1-pro-preview", note: "Fast, good at data analysis" },
   { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning", note: "Has live X/Twitter access" },
 ];
 
@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: Config = {
   models: DEFAULT_MODELS,
   tools: "bash,read",
   stall_seconds: 60,
-  timeout_seconds: 300,
+  timeout_seconds: 600,
   system_prompt: DEFAULT_SYSTEM_PROMPT,
 };
 
@@ -85,9 +85,8 @@ export function loadConfig(): Config {
       timeout_seconds: typeof raw.timeout_seconds === "number" && raw.timeout_seconds >= 0 ? raw.timeout_seconds : DEFAULT_CONFIG.timeout_seconds,
       system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
-  } catch {
-    // Corrupted config.json — fall back to defaults silently.
-    // This is intentional: users shouldn't need to debug JSON parsing errors on startup.
+  } catch (err) {
+    process.stderr.write(`Warning: ${CONFIG_PATH} is invalid (${(err as Error).message}), using defaults\n`);
     return { ...DEFAULT_CONFIG };
   }
 }

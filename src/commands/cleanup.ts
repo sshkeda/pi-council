@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getRunsDir, getLatestFile } from "../core/config.js";
 import { loadMeta } from "../core/run-state.js";
-import { agentPaths } from "../core/runner.js";
-import { killPid } from "../util/pid.js";
+import { killAllAgents } from "../core/run-lifecycle.js";
 import { resolveRunId } from "./status.js";
 
 /** Kill workers but keep files for inspection */
@@ -18,26 +17,7 @@ export function cancel(runId?: string): void {
     return;
   }
 
-  for (const agent of meta.agents) {
-    const paths = agentPaths(runDir, agent.id);
-    if (fs.existsSync(paths.pid)) {
-      try {
-        const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
-        killPid(pid);
-      } catch (err) {
-        process.stderr.write(`  ⚠️  Failed to kill ${agent.id}: ${(err as Error).message}\n`);
-      }
-    }
-    // Write .done so status/results can read partial output
-    if (!fs.existsSync(paths.done)) {
-      try {
-        fs.writeFileSync(paths.done, "cancelled");
-      } catch (err) {
-        process.stderr.write(`  ⚠️  Failed to mark ${agent.id} as cancelled: ${(err as Error).message}\n`);
-      }
-    }
-  }
-
+  killAllAgents(runDir, meta.agents, true);
   process.stderr.write(`Cancelled: ${resolved} (files kept — use status/results to inspect)\n`);
 }
 
@@ -53,17 +33,7 @@ export function cleanup(runId?: string): void {
     return;
   }
 
-  for (const agent of meta.agents) {
-    const paths = agentPaths(runDir, agent.id);
-    if (fs.existsSync(paths.pid)) {
-      try {
-        const pid = parseInt(fs.readFileSync(paths.pid, "utf-8").trim(), 10);
-        killPid(pid);
-      } catch (err) {
-        process.stderr.write(`  ⚠️  Failed to kill ${agent.id}: ${(err as Error).message}\n`);
-      }
-    }
-  }
+  killAllAgents(runDir, meta.agents, false);
 
   try {
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -72,23 +42,21 @@ export function cleanup(runId?: string): void {
   }
 
   const latestFile = getLatestFile();
-  if (fs.existsSync(latestFile)) {
-    try {
-      const latest = fs.readFileSync(latestFile, "utf-8").trim();
-      if (latest === resolved) {
-        const runsDir = getRunsDir();
-        const remaining = fs.existsSync(runsDir)
-          ? fs.readdirSync(runsDir).filter((d) => d !== resolved).sort().reverse()
-          : [];
-        if (remaining.length > 0) {
-          fs.writeFileSync(latestFile, remaining[0]);
-        } else {
-          fs.unlinkSync(latestFile);
-        }
+  try {
+    const latest = fs.readFileSync(latestFile, "utf-8").trim();
+    if (latest === resolved) {
+      const runsDir = getRunsDir();
+      const remaining = fs.existsSync(runsDir)
+        ? fs.readdirSync(runsDir).filter((d) => d !== resolved).sort().reverse()
+        : [];
+      if (remaining.length > 0) {
+        fs.writeFileSync(latestFile, remaining[0]);
+      } else {
+        fs.unlinkSync(latestFile);
       }
-    } catch (err) {
-      process.stderr.write(`  ⚠️  Failed to update latest-run-id: ${(err as Error).message}\n`);
     }
+  } catch {
+    // latest-run-id missing or unreadable — not critical
   }
 
   process.stderr.write(`Cleaned up: ${resolved}\n`);

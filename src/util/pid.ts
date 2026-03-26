@@ -5,10 +5,10 @@ export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    // ESRCH = no such process, EPERM = process exists but we can't signal it.
-    // Both mean "not our process" for practical purposes, so return false.
-    return false;
+  } catch (err) {
+    // EPERM = process exists but we can't signal it — it's still alive
+    // ESRCH = no such process — it's dead
+    return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -19,14 +19,16 @@ export function pidAlive(pid: number): boolean {
 export function isPiProcess(pid: number): boolean {
   if (!pidAlive(pid)) return false;
   try {
-    // Use ps to get the command — works on macOS and Linux
-    const output = execFileSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf-8", timeout: 2000 }).trim();
-    // The pi agent runs as node/pi/tsx — check for common names
-    return /\b(pi|node|tsx|bun|deno)\b/i.test(output);
-  } catch {
-    // ps failed (e.g., process exited between pidAlive and ps) —
-    // be conservative and assume it's valid to avoid leaving orphans
-    return true;
+    // Use full command args (not just binary name) to verify this is actually a pi agent
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "args="], { encoding: "utf-8", timeout: 2000 }).trim();
+    // Match either: pi --mode json (direct spawn) or node supervisor.js (background spawn)
+    return (/\bpi\b/.test(output) && /--mode\s+json/.test(output)) || /supervisor\.js/.test(output);
+  } catch (err) {
+    // ENOENT = ps not available (Windows, minimal containers) — skip safety check,
+    // assume it's ours to avoid leaving orphaned processes
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
+    // Other errors (process exited, timeout) — be conservative
+    return false;
   }
 }
 

@@ -5,7 +5,7 @@ import { generateRunId } from "../src/util/run-id.js";
 describe("generateRunId", () => {
   it("matches YYYYMMDD-HHMMSS-XXXX format", () => {
     const id = generateRunId();
-    assert.match(id, /^\d{8}-\d{6}-[0-9a-f]{4}$/);
+    assert.match(id, /^\d{8}-\d{6}-[0-9a-f]{8}$/);
   });
 
   it("generates unique IDs", () => {

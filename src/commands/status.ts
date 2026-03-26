@@ -5,12 +5,22 @@ import { loadMeta, refreshRun } from "../core/run-state.js";
 import { bold, green, red, yellow, dim } from "../util/format.js";
 
 export function resolveRunId(runId?: string): string {
-  if (runId) return runId;
-  const latestFile = getLatestFile();
-  if (fs.existsSync(latestFile)) {
-    return fs.readFileSync(latestFile, "utf-8").trim();
+  let resolved: string;
+  if (runId) {
+    resolved = runId;
+  } else {
+    const latestFile = getLatestFile();
+    try {
+      resolved = fs.readFileSync(latestFile, "utf-8").trim();
+    } catch {
+      throw new Error("No run specified and no latest run found.");
+    }
   }
-  throw new Error("No run specified and no latest run found.");
+  // Sanitize: prevent path traversal via malicious run IDs
+  if (resolved.includes("..") || resolved.includes("/") || resolved.includes("\\")) {
+    throw new Error(`Invalid run ID: ${resolved}`);
+  }
+  return resolved;
 }
 
 export function status(runId?: string): boolean {
@@ -20,6 +30,7 @@ export function status(runId?: string): boolean {
 
   if (!meta) {
     process.stderr.write(`No run found: ${resolved}\n`);
+    process.exitCode = 1; // Error: run doesn't exist (vs exitCode=2 for "still running")
     return false;
   }
 

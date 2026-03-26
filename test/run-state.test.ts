@@ -53,6 +53,7 @@ describe("isAgentDone", () => {
 
   it("returns false when no .done and no .pid", () => {
     const dir = makeTmpRunDir();
+    // No PID file — can't determine state, return false (caller handles this)
     assert.equal(isAgentDone(dir, fakeModel), false);
     fs.rmSync(dir, { recursive: true });
   });
@@ -106,5 +107,25 @@ describe("refreshWorker", () => {
     const state = refreshWorker(dir, fakeModel, 60);
     assert.equal(state.status, "failed");
     fs.rmSync(dir, { recursive: true });
+  });
+});
+
+import { resolveRunId } from "../src/commands/status.js";
+
+describe("resolveRunId", () => {
+  it("rejects path traversal in run ID", () => {
+    assert.throws(() => resolveRunId("../../../etc/passwd"), /Invalid run ID/);
+    assert.throws(() => resolveRunId("foo/bar"), /Invalid run ID/);
+    assert.throws(() => resolveRunId("foo\\bar"), /Invalid run ID/);
+  });
+
+  it("accepts valid run IDs", () => {
+    // Won't find the run but shouldn't throw validation error
+    // (will throw "No run found" instead)
+    assert.doesNotThrow(() => {
+      try { resolveRunId("20260325-123456-abcd1234"); } catch (e) {
+        if ((e as Error).message.includes("Invalid")) throw e;
+      }
+    });
   });
 });

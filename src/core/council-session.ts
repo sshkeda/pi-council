@@ -194,7 +194,7 @@ export class CouncilSession {
         id: a.id,
         provider: a.provider,
         model: a.model,
-        status: (a.exitCode === 0 && a.stopReason !== "error") ? "done"
+        status: (a.exitCode === 0 && a.stopReason !== "error" && !a.errorMessage) ? "done"
           : a.exitCode === 124 ? "timed_out"
           : a.output === "(cancelled)" ? "cancelled"
           : a.output?.startsWith("spawn error") ? "spawn_error"

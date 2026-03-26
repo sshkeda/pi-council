@@ -129,3 +129,17 @@ describe("resolveRunId", () => {
     });
   });
 });
+
+describe("Bugfix: exitCode=0 with error stopReason in refreshWorker", () => {
+  it("treats exit=0 with stopReason=error as failed", () => {
+    const dir = makeTmpRunDir();
+    fs.writeFileSync(path.join(dir, "test.done"), "0");
+    fs.writeFileSync(path.join(dir, "test.pid"), "999999999");
+    fs.writeFileSync(path.join(dir, "test.jsonl"), 
+      '{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"API error"}}\n');
+    const state = refreshWorker(dir, fakeModel, 60);
+    assert.equal(state.status, "failed");
+    assert.ok(state.errorMessage?.includes("API error"));
+    fs.rmSync(dir, { recursive: true });
+  });
+});

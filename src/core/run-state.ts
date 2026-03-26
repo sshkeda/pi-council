@@ -118,7 +118,8 @@ export function refreshWorker(runDir: string, model: ModelSpec, stallSeconds: nu
     // Use exit code when available: "0" = success, anything else = failure
     // "cancelled" is also treated as failure
     if (exitCode === "0") {
-      status = "done";
+      // Exit 0 but protocol error = still failed (e.g., API error with clean process exit)
+      status = (parsed.stopReason === "error" || parsed.errorMessage) ? "failed" : "done";
     } else if (exitCode && exitCode !== "" && exitCode !== "0") {
       // Explicit non-zero exit code or "cancelled" — failed even if there's partial text
       status = "failed";

@@ -43,6 +43,13 @@ function waitForCompletion(runDir: string, meta: RunMeta): Promise<void> {
 
     // PID liveness check every 2s — for background spawn mode
     pidCheck = setInterval(() => {
+      // Detect if run directory was deleted (e.g., by concurrent cleanup)
+      try { fs.accessSync(runDir); } catch {
+        process.stderr.write("Run directory was deleted during wait.\n");
+        process.exitCode = 1;
+        finish();
+        return;
+      }
       if (checkAllDone(runDir, meta)) finish();
     }, 2_000);
 
@@ -67,6 +74,8 @@ export async function results(runId?: string, wait = true): Promise<void> {
   // Wait for completion via fs.watch + PID checks (event-driven)
   if (wait) {
     await waitForCompletion(runDir, meta);
+    // If interrupted (Ctrl-C), stop without printing partial results
+    if (process.exitCode === 130) return;
   }
 
   // Print results

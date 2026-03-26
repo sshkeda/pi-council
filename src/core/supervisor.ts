@@ -58,20 +58,14 @@ if (timeoutSec > 0) {
 child.on("close", (code) => {
   if (timer) clearTimeout(timer);
   const exitCode = killed ? 124 : (code ?? 1);
-  try {
-    // Only write if .done doesn't exist yet (cancel/cleanup may have written it)
-    fs.accessSync(donePath);
-  } catch {
-    try { fs.writeFileSync(donePath, String(exitCode)); } catch {}
-  }
+  // Write-once: wx flag ensures we don't overwrite cancel/timeout markers
+  try { fs.writeFileSync(donePath, String(exitCode), { flag: "wx" }); } catch {}
   process.exit(exitCode);
 });
 
 child.on("error", () => {
   if (timer) clearTimeout(timer);
-  // Same write-once guard as close handler — don't overwrite cancel/timeout markers
-  try { fs.accessSync(donePath); } catch {
-    try { fs.writeFileSync(donePath, "1"); } catch {}
-  }
+  // Write-once: wx flag ensures we don't overwrite cancel/timeout markers
+  try { fs.writeFileSync(donePath, "1", { flag: "wx" }); } catch {}
   process.exit(1);
 });

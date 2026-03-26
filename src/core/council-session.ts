@@ -21,6 +21,8 @@ export interface AgentState {
   output: string;
   exitCode: number | null;
   finished: boolean;
+  stopReason: string | null;
+  errorMessage: string | null;
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
 }
 
@@ -77,6 +79,8 @@ export class CouncilSession {
       output: "",
       exitCode: null,
       finished: false,
+      stopReason: null,
+      errorMessage: null,
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
     }));
 
@@ -127,6 +131,8 @@ export class CouncilSession {
           const parsed = parseStream(paths.stream);
           this.agents[i].output = parsed.finalText || parsed.assistantText;
           this.agents[i].usage = parsed.usage;
+          this.agents[i].stopReason = parsed.stopReason;
+          this.agents[i].errorMessage = parsed.errorMessage;
         }
 
         this.writeDone(m.id, String(code ?? ""));
@@ -188,13 +194,13 @@ export class CouncilSession {
         id: a.id,
         provider: a.provider,
         model: a.model,
-        status: a.exitCode === 0 ? "done"
+        status: (a.exitCode === 0 && a.stopReason !== "error") ? "done"
           : a.exitCode === 124 ? "timed_out"
           : a.output === "(cancelled)" ? "cancelled"
           : a.output?.startsWith("spawn error") ? "spawn_error"
           : "failed",
         finalText: a.output,
-        errorMessage: a.exitCode !== 0 ? (a.output || "agent failed") : null,
+        errorMessage: a.errorMessage ?? (a.exitCode !== 0 ? (a.output || "agent failed") : null),
         usage: a.usage,
       })),
     });
@@ -256,8 +262,14 @@ export class CouncilSession {
       if (!this.agents[j].finished) {
         this.agents[j].finished = true;
         this.agents[j].exitCode = code === "cancelled" ? 1 : parseInt(code, 10) || 1;
+        // Preserve any partial output already written to the stream
         if (!this.agents[j].output) {
-          this.agents[j].output = messages[code] ?? `(failed: ${code})`;
+          const paths = agentPaths(this.runDir, this.agents[j].id);
+          const parsed = parseStream(paths.stream);
+          this.agents[j].output = parsed.assistantText || parsed.finalText || (messages[code] ?? `(failed: ${code})`);
+          this.agents[j].stopReason = parsed.stopReason;
+          this.agents[j].errorMessage = parsed.errorMessage;
+          this.agents[j].usage = parsed.usage;
         }
         this.finishedCount++;
         this.writeDone(this.agents[j].id, code);

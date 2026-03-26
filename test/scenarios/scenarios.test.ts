@@ -585,3 +585,59 @@ describe("Scenario: state machine comprehensive", () => {
     fs.rmSync(dir, { recursive: true });
   });
 });
+
+// ============================================================
+// Bug fix: protocol error with exit code 0 misclassified as success
+// ============================================================
+describe("Bugfix: protocol error with exit=0", () => {
+  let tmpDir: string, origPath: string, config: Config;
+  before(() => {
+    tmpDir = makeTmpDir();
+    ({ origPath, config } = setupMockPi(tmpDir, "error"));
+  });
+  after(() => { teardown(origPath); fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  it("marks worker failed in artifacts when stopReason=error but exit=0", async () => {
+    const runDir = path.join(tmpDir, "run-proto-error");
+    fs.mkdirSync(runDir, { recursive: true });
+    const session = new CouncilSession({
+      runId: "test-proto-error", runDir, prompt: "test",
+      models: [fakeModel("agent1")], config, cwd: tmpDir,
+    });
+    session.start();
+    await session.waitForCompletion();
+    session.dispose();
+    const results = JSON.parse(fs.readFileSync(path.join(runDir, "results.json"), "utf-8"));
+    assert.equal(results.workers[0].status, "failed");
+    assert.ok(results.workers[0].errorMessage?.includes("Mock API error"));
+  });
+});
+
+// ============================================================
+// Bug fix: cancel preserves partial output
+// ============================================================
+describe("Bugfix: cancel preserves partial output", () => {
+  let tmpDir: string, origPath: string, config: Config;
+  before(() => {
+    tmpDir = makeTmpDir();
+    ({ origPath, config } = setupMockPi(tmpDir, "hang"));
+  });
+  after(() => { teardown(origPath); fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  it("preserves partial assistant text after cancel", async () => {
+    const runDir = path.join(tmpDir, "run-cancel-partial");
+    fs.mkdirSync(runDir, { recursive: true });
+    const session = new CouncilSession({
+      runId: "test-cancel-partial", runDir, prompt: "test",
+      models: [fakeModel("agent1")], config: { ...config, timeout_seconds: 0 }, cwd: tmpDir,
+    });
+    session.start();
+    await new Promise(r => setTimeout(r, 200)); // let mock write initial output
+    session.cancel();
+    session.dispose();
+    const results = JSON.parse(fs.readFileSync(path.join(runDir, "results.json"), "utf-8"));
+    // Should have the partial "Starting..." text, not just "(cancelled)"
+    assert.ok(results.workers[0].finalText.includes("Starting"), 
+      `Expected partial text, got: ${results.workers[0].finalText}`);
+  });
+});

@@ -153,3 +153,14 @@ describe("parseStream", () => {
     assert.equal(result.errorMessage, "API rate limited");
   });
 });
+
+import { parseStreamAsync } from "../src/core/stream-parser.js";
+
+describe("parseStreamAsync", () => {
+  it("returns empty result for missing file (no rejection)", async () => {
+    const result = await parseStreamAsync("/definitely/missing/file.jsonl");
+    assert.equal(result.events, 0);
+    assert.equal(result.finalText, "");
+    assert.equal(result.assistantText, "");
+  });
+});

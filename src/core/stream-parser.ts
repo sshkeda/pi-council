@@ -212,17 +212,22 @@ export async function parseStreamAsync(filePath: string): Promise<ParsedStream> 
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
   };
 
-  let stream: fs.ReadStream;
+  // Check file exists first — createReadStream doesn't throw synchronously on ENOENT
   try {
-    stream = fs.createReadStream(filePath, { encoding: "utf-8" });
+    fs.accessSync(filePath);
   } catch {
     return result;
   }
 
+  const stream = fs.createReadStream(filePath, { encoding: "utf-8" });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
 
-  for await (const line of rl) {
-    processLine(line, result);
+  try {
+    for await (const line of rl) {
+      processLine(line, result);
+    }
+  } catch {
+    // Stream error (e.g., file removed mid-read) — return what we have
   }
 
   return result;

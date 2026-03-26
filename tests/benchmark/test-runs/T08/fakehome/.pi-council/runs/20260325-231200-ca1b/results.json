@@ -1,0 +1,22 @@
+{
+  "runId": "20260325-231200-ca1b",
+  "prompt": "Tool use test",
+  "completedAt": 1774494720991,
+  "workers": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test",
+      "status": "done",
+      "finalText": "Final answer from claude after 5 tool rounds.",
+      "errorMessage": null,
+      "usage": {
+        "input": 350,
+        "output": 800,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.045
+      }
+    }
+  ]
+}

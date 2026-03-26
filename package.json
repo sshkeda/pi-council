@@ -60,30 +60,20 @@
     "build": "tsc",
     "prepublishOnly": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts",
-    "test": "node --import tsx --test test/*.test.ts test/scenarios/*.test.ts"
+    "test:benchmark": "node tests/benchmark/run-benchmarks.mjs",
+    "test": "node tests/benchmark/run-benchmarks.mjs"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "tsx": "^4.0.0",
-    "@types/node": "^22.0.0",
-    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
-    "@sinclair/typebox": "*"
-  },
-  "exports": {
-    ".": "./dist/src/cli.js",
-    "./core/config": "./dist/src/core/config.js",
-    "./core/runner": "./dist/src/core/runner.js",
-    "./core/stream-parser": "./dist/src/core/stream-parser.js",
-    "./core/run-lifecycle": "./dist/src/core/run-lifecycle.js",
-    "./core/run-state": "./dist/src/core/run-state.js",
-    "./util/pid": "./dist/src/util/pid.js",
-    "./util/format": "./dist/src/util/format.js",
-    "./util/run-id": "./dist/src/util/run-id.js"
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
   }
 }

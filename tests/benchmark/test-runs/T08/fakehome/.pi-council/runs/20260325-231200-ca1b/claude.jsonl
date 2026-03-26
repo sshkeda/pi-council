@@ -1,0 +1,16 @@
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool round 1/5: analyzing..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Calling tool round 1"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":50,"output":100,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool result for round 1 received."}]}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool round 2/5: analyzing..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Calling tool round 2"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":50,"output":100,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool result for round 2 received."}]}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool round 3/5: analyzing..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Calling tool round 3"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":50,"output":100,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool result for round 3 received."}]}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool round 4/5: analyzing..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Calling tool round 4"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":50,"output":100,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool result for round 4 received."}]}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool round 5/5: analyzing..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Calling tool round 5"},{"type":"toolCall","name":"bash","input":"echo test"}],"stopReason":"toolUse","usage":{"input":50,"output":100,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.005}}}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Tool result for round 5 received."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Final answer from claude after 5 tool rounds."}],"stopReason":"stop","usage":{"input":100,"output":300,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.02}}}}

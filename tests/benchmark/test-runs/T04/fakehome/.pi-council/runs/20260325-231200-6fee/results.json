@@ -1,0 +1,67 @@
+{
+  "runId": "20260325-231200-6fee",
+  "prompt": "This will fail",
+  "completedAt": 1774494720842,
+  "workers": [
+    {
+      "id": "claude",
+      "provider": "anthropic",
+      "model": "claude-test",
+      "status": "failed",
+      "finalText": "",
+      "errorMessage": "API rate limit exceeded for claude",
+      "usage": {
+        "input": 10,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.001
+      }
+    },
+    {
+      "id": "gpt",
+      "provider": "openai",
+      "model": "gpt-test",
+      "status": "failed",
+      "finalText": "",
+      "errorMessage": "API rate limit exceeded for gpt",
+      "usage": {
+        "input": 10,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.001
+      }
+    },
+    {
+      "id": "gemini",
+      "provider": "google",
+      "model": "gemini-test",
+      "status": "failed",
+      "finalText": "",
+      "errorMessage": "API rate limit exceeded for gemini",
+      "usage": {
+        "input": 10,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.001
+      }
+    },
+    {
+      "id": "grok",
+      "provider": "xai",
+      "model": "grok-test",
+      "status": "failed",
+      "finalText": "",
+      "errorMessage": "API rate limit exceeded for grok",
+      "usage": {
+        "input": 10,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.001
+      }
+    }
+  ]
+}

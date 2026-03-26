@@ -1,0 +1,2 @@
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Thinking slowly as claude..."}]}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Slow but complete answer from claude after 2s delay."}],"stopReason":"stop","usage":{"input":100,"output":200,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.01}}}}

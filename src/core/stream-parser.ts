@@ -113,6 +113,19 @@ function processLine(line: string, result: ParsedStream): void {
  * Uses a manual line splitter on a streaming read to avoid loading the entire
  * file into memory. Handles files of any size without memory spikes.
  */
+/** Clone a ParsedStream to prevent cache mutation through returned references. */
+function cloneParsedStream(r: ParsedStream): ParsedStream {
+  return {
+    assistantText: r.assistantText,
+    finalText: r.finalText,
+    stopReason: r.stopReason,
+    errorMessage: r.errorMessage,
+    toolCalls: r.toolCalls,
+    events: r.events,
+    usage: { ...r.usage },
+  };
+}
+
 /** Cache parsed results by filepath + mtime to avoid reparsing unchanged files. LRU with max 50 entries. */
 const CACHE_MAX = 50;
 const parseCache = new Map<string, { mtimeMs: number; size: number; result: ParsedStream }>();
@@ -132,7 +145,7 @@ export function parseStream(filePath: string): ParsedStream {
     const stat = fs.statSync(filePath);
     const cached = parseCache.get(filePath);
     if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-      return cached.result;
+      return cloneParsedStream(cached.result);
     }
   } catch {
     // File doesn't exist or stat failed — parse will handle it
@@ -191,7 +204,7 @@ export function parseStream(filePath: string): ParsedStream {
   try {
     fs.accessSync(donePath); // throws if no .done
     const stat = fs.statSync(filePath);
-    cacheSet(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, result });
+    cacheSet(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, result: cloneParsedStream(result) });
   } catch { /* still streaming or stat failed — don't cache */ }
 
   return result;

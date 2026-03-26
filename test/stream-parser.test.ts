@@ -164,3 +164,21 @@ describe("parseStreamAsync", () => {
     assert.equal(result.assistantText, "");
   });
 });
+
+describe("parseStream cache immutability", () => {
+  it("mutations on returned object do not corrupt cache", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cache-"));
+    const file = path.join(dir, "agent.jsonl");
+    fs.writeFileSync(file, '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"original"}],"stopReason":"stop"}}\n');
+    fs.writeFileSync(path.join(dir, "agent.done"), "0");
+
+    const first = parseStream(file);
+    first.finalText = "mutated";
+    first.assistantText = "mutated";
+
+    const second = parseStream(file);
+    assert.equal(second.finalText, "original");
+    assert.equal(second.assistantText, "original");
+    fs.rmSync(dir, { recursive: true });
+  });
+});

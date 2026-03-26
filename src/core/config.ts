@@ -18,10 +18,19 @@ export interface Config {
   system_prompt: string;
 }
 
-const CONFIG_DIR = process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council");
-const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
-const RUNS_DIR = path.join(CONFIG_DIR, "runs");
-const LATEST_FILE = path.join(CONFIG_DIR, "latest-run-id");
+// Lazy path resolution — honors PI_COUNCIL_HOME changes at runtime (important for tests)
+function configDir(): string {
+  return process.env.PI_COUNCIL_HOME ?? path.join(os.homedir(), ".pi-council");
+}
+function configPath(): string {
+  return path.join(configDir(), "config.json");
+}
+function runsDir(): string {
+  return path.join(configDir(), "runs");
+}
+function latestFile(): string {
+  return path.join(configDir(), "latest-run-id");
+}
 
 export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "claude", provider: "anthropic", model: "claude-opus-4-6", note: "Strong at nuanced reasoning" },
@@ -45,15 +54,15 @@ const DEFAULT_CONFIG: Config = {
 };
 
 export function getConfigDir(): string {
-  return CONFIG_DIR;
+  return configDir();
 }
 
 export function getRunsDir(): string {
-  return RUNS_DIR;
+  return runsDir();
 }
 
 export function getLatestFile(): string {
-  return LATEST_FILE;
+  return latestFile();
 }
 
 function validateModels(models: unknown): ModelSpec[] | null {
@@ -68,16 +77,16 @@ function validateModels(models: unknown): ModelSpec[] | null {
 }
 
 export function loadConfig(): Config {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.mkdirSync(RUNS_DIR, { recursive: true });
+  fs.mkdirSync(configDir(), { recursive: true });
+  fs.mkdirSync(runsDir(), { recursive: true });
 
-  if (!fs.existsSync(CONFIG_PATH)) {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
+  if (!fs.existsSync(configPath())) {
+    fs.writeFileSync(configPath(), JSON.stringify(DEFAULT_CONFIG, null, 2));
     return { ...DEFAULT_CONFIG };
   }
 
   try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    const raw = JSON.parse(fs.readFileSync(configPath(), "utf-8"));
     return {
       models: validateModels(raw.models) ?? DEFAULT_CONFIG.models,
       tools: typeof raw.tools === "string" ? raw.tools : DEFAULT_CONFIG.tools,
@@ -86,7 +95,7 @@ export function loadConfig(): Config {
       system_prompt: typeof raw.system_prompt === "string" ? raw.system_prompt : DEFAULT_CONFIG.system_prompt,
     };
   } catch (err) {
-    process.stderr.write(`Warning: ${CONFIG_PATH} is invalid (${(err as Error).message}), using defaults\n`);
+    process.stderr.write(`Warning: ${configPath()} is invalid (${(err as Error).message}), using defaults\n`);
     return { ...DEFAULT_CONFIG };
   }
 }

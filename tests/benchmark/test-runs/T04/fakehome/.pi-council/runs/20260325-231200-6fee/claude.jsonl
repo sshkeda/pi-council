@@ -1,1 +1,0 @@
-{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"API rate limit exceeded for claude","usage":{"input":10,"output":0,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.001}}}}

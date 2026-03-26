@@ -1,2 +1,0 @@
-{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Thinking about this question as gemini..."}]}}
-{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Final answer from gemini: The council approach is effective for surfacing disagreement. Each model brings unique strengths."}],"stopReason":"stop","usage":{"input":100,"output":200,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.01}}}}

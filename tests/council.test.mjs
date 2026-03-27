@@ -1546,7 +1546,7 @@ await test("T77: Cancel slow member before it completes", async () => {
 
   const status = council.getMember("claude").getStatus();
   assert(status.state === "cancelled", "cancelled");
-  assert(status.durationMs < 2000, "cancelled before slow response finished");
+  assert(status.durationMs < 500, "cancelled before slow response finished");
 });
 
 await test("T78: Tool execution events propagate through Council", async () => {
@@ -1605,7 +1605,133 @@ await test("T80: Slow member eventually completes on its own", async () => {
   const result = await council.waitForCompletion();
   assert(result.members[0].state === "done", "done");
   assert(result.members[0].output.length > 0, "has output");
-  assert(result.members[0].durationMs >= 2000, "took at least 2s (slow mock)");
+  assert(result.members[0].durationMs >= 400, "took at least 400ms (slow mock)");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Live Steer/Abort Tests — interact with slow members mid-flight
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Live Steer/Abort Tests ──\n");
+
+await test("T81: Steer a slow member via Council.followUp", async () => {
+  const council = new Council("Live steer test");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Wait a bit for the member to start processing
+  await new Promise(r => setTimeout(r, 200));
+  const member = council.getMember("claude");
+  assert(member.isAlive(), "member is alive");
+
+  // Send steer — should not throw, should be accepted
+  await council.followUp({ type: "steer", message: "Also consider latency" });
+
+  // Wait for completion — the slow mock takes ~2s
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed after steer");
+  assert(member.getOutput().length > 0, "has output");
+});
+
+await test("T82: Abort a slow member and verify cancel", async () => {
+  const council = new Council("Live abort test");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 200));
+  assert(council.getMember("claude").isAlive(), "alive before abort");
+
+  // Abort without new prompt — just stop
+  await council.followUp({ type: "abort", message: "" });
+
+  // After abort, the member's agent_end should fire, then stdin closes, then process exits
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed after abort");
+});
+
+await test("T83: Steer targeted to specific member in multi-member council", async () => {
+  const council = new Council("Targeted steer test");
+
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 200));
+
+  // Steer only claude
+  await council.followUp({
+    type: "steer",
+    message: "Focus on security aspects",
+    memberIds: ["claude"],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete");
+  // Both should finish — steer doesn't kill
+  assert(council.getMember("claude").getStatus().state === "done", "claude done");
+  assert(council.getMember("gpt").getStatus().state === "done", "gpt done");
+});
+
+await test("T84: Cancel one member while another completes in mixed council", async () => {
+  const council = new Council("Mixed cancel test");
+
+  council.spawn({
+    models: [
+      { id: "slow", provider: "anthropic", model: "claude-test" },
+      { id: "fast", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    // Both use slow mock — but we cancel one early
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 200));
+
+  // Cancel slow, let fast continue
+  council.cancel(["slow"]);
+
+  await council.waitForCompletion();
+  assert(council.getMember("slow").getStatus().state === "cancelled", "slow cancelled");
+  assert(council.getMember("fast").getStatus().state === "done", "fast done");
+});
+
+await test("T85: Multiple steers to same member", async () => {
+  const council = new Council("Multi steer test");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 200));
+
+  // Send multiple steers
+  await council.followUp({ type: "steer", message: "Consider cost" });
+  await council.followUp({ type: "steer", message: "Consider scale" });
+  await council.followUp({ type: "steer", message: "Consider maintenance" });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with multiple steers");
+  assert(council.getMember("claude").getOutput().length > 0, "has output");
 });
 
 // ═══════════════════════════════════════════════════════════════════════

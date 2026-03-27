@@ -42,7 +42,6 @@ export class CouncilMember {
     reject: (err: Error) => void;
   }>();
   private responseIdCounter = 0;
-  private keepAlive = false;
 
   constructor(id: string, model: ModelSpec) {
     this.id = id;
@@ -152,8 +151,6 @@ export class CouncilMember {
    */
   async steer(message: string): Promise<void> {
     this.ensureAlive();
-    this.keepAlive = true;
-    if (this.state === "done") this.state = "running";
     await this.sendRpcCommand({ type: "steer", message });
   }
 
@@ -163,8 +160,6 @@ export class CouncilMember {
    */
   async followUp(message: string): Promise<void> {
     this.ensureAlive();
-    this.keepAlive = true;
-    if (this.state === "done") this.state = "running";
     await this.sendRpcCommand({ type: "follow_up", message });
   }
 
@@ -175,8 +170,6 @@ export class CouncilMember {
     this.ensureAlive();
     await this.sendRpcCommand({ type: "abort" });
     if (newPrompt) {
-      this.keepAlive = true;
-      if (this.state === "done") this.state = "running";
       // Wait a tick for abort to process, then send new prompt
       await new Promise((r) => setTimeout(r, 50));
       await this.sendRpcCommand({ type: "prompt", message: newPrompt });
@@ -188,7 +181,6 @@ export class CouncilMember {
    * Call this when no more follow-ups will be sent.
    */
   finish(): void {
-    this.keepAlive = false;
     this.closeStdin();
   }
 
@@ -297,7 +289,7 @@ export class CouncilMember {
     } catch {}
   }
 
-  private sendRpcCommand(command: Record<string, unknown>): Promise<RpcResponse> {
+  private sendRpcCommand(command: Record<string, unknown>, timeoutMs = 10_000): Promise<RpcResponse> {
     return new Promise((resolve, reject) => {
       if (!this.child?.stdin?.writable) {
         reject(new Error("stdin not writable"));
@@ -307,7 +299,15 @@ export class CouncilMember {
       const id = `req-${++this.responseIdCounter}`;
       const cmd = { ...command, id };
 
-      this.pendingResponses.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pendingResponses.delete(id);
+        reject(new Error(`RPC command timed out: ${command.type}`));
+      }, timeoutMs);
+
+      this.pendingResponses.set(id, {
+        resolve: (resp) => { clearTimeout(timer); resolve(resp); },
+        reject: (err) => { clearTimeout(timer); reject(err); },
+      });
       this.child.stdin.write(JSON.stringify(cmd) + "\n");
     });
   }
@@ -352,10 +352,10 @@ export class CouncilMember {
 
       case "agent_end":
         this.isStreaming = false;
-        // If no pending follow-ups, close stdin to let the process exit
-        if (!this.keepAlive) {
-          this.closeStdin();
-        }
+        // Always close stdin on agent_end. If a steer/followUp needs
+        // to send more work, it will re-open by calling abort(newPrompt).
+        // Keeping stdin open after agent_end causes the process to hang.
+        this.closeStdin();
         break;
 
       case "message_update": {

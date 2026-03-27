@@ -2212,6 +2212,92 @@ await test("T110: Council with 4 models all produce unique outputs", async () =>
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Robustness Tests — edge cases and boundary conditions
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Robustness Tests ──\n");
+
+await test("T111: Council handles very long prompt", async () => {
+  const longPrompt = "A".repeat(10000);
+  const council = new Council(longPrompt);
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with long prompt");
+  assert(council.prompt.length === 10000, "prompt preserved");
+});
+
+await test("T112: Council handles special characters in prompt", async () => {
+  const council = new Council('Test "quotes" and\nnewlines\tand\ttabs & <html>');
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with special chars");
+  const promptFile = fs.readFileSync(path.join(council.getRunDir(), "prompt.txt"), "utf-8");
+  assert(promptFile.includes('"quotes"'), "preserved quotes");
+  assert(promptFile.includes("<html>"), "preserved html");
+});
+
+await test("T113: Cancel nonexistent memberIds is a no-op", async () => {
+  const council = new Council("Cancel nonexistent");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  council.cancel(["nonexistent1", "nonexistent2"]);
+  await council.waitForCompletion();
+  assert(council.getMember("claude").getStatus().state === "done", "claude unaffected");
+});
+
+await test("T114: FollowUp to nonexistent memberIds is graceful", async () => {
+  const council = new Council("FollowUp nonexistent");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Should not throw
+  await council.followUp({
+    type: "steer",
+    message: "test",
+    memberIds: ["nonexistent"],
+  });
+});
+
+await test("T115: Double cancel is safe", async () => {
+  const council = new Council("Double cancel");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 50));
+  council.cancel();
+  council.cancel(); // second cancel should be safe
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete after double cancel");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

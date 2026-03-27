@@ -810,6 +810,163 @@ await test("T50: Council status shows correct finished count", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// RPC Protocol Tests — verify mock-pi speaks the protocol correctly
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── RPC Protocol Tests ──\n");
+
+await test("T51: Mock-pi processes prompt and returns text via RPC events", async () => {
+  // Directly test mock-pi without council wrapper
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "anthropic", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) {
+        try { events.push(JSON.parse(line)); } catch {}
+      }
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test question" }) + "\n");
+
+  await new Promise(r => setTimeout(r, 500));
+
+  // Verify we got the right events
+  const response = events.find(e => e.type === "response" && e.id === "p1");
+  assert(response !== undefined, "got prompt response");
+  assert(response.success === true, "prompt succeeded");
+
+  const agentStart = events.find(e => e.type === "agent_start");
+  assert(agentStart !== undefined, "got agent_start");
+
+  const textDeltas = events.filter(e => e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta");
+  assert(textDeltas.length > 0, "got text deltas");
+
+  const agentEnd = events.find(e => e.type === "agent_end");
+  assert(agentEnd !== undefined, "got agent_end");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T52: Mock-pi handles get_state command", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test-model", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "get_state", id: "s1" }) + "\n");
+  await new Promise(r => setTimeout(r, 200));
+
+  const resp = events.find(e => e.type === "response" && e.id === "s1");
+  assert(resp !== undefined, "got state response");
+  assert(resp.success === true, "state succeeded");
+  assert(resp.data.model !== undefined, "has model");
+  assert(resp.data.isStreaming === false, "not streaming initially");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T53: Mock-pi handles abort command", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "abort", id: "a1" }) + "\n");
+  await new Promise(r => setTimeout(r, 200));
+
+  const resp = events.find(e => e.type === "response" && e.id === "a1");
+  assert(resp !== undefined, "got abort response");
+  assert(resp.success === true, "abort succeeded");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T54: Member captures text deltas into output", async () => {
+  const council = new Council("Text capture test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const output = council.readStream("claude");
+  // Mock-pi generates text with spaces between words
+  assert(output.includes("Claude") || output.includes("analyze") || output.includes("assessment"), "output has content");
+  assert(!output.includes("undefined"), "no undefined in output");
+});
+
+await test("T55: Member output events fire in order", async () => {
+  const events = [];
+  const council = new Council("Event order test");
+  council.on((e) => events.push(e.type));
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // member_started should come before member_output which comes before member_done
+  const startIdx = events.indexOf("member_started");
+  const outputIdx = events.indexOf("member_output");
+  const doneIdx = events.indexOf("member_done");
+  const completeIdx = events.indexOf("council_complete");
+
+  assert(startIdx >= 0, "has started");
+  assert(outputIdx > startIdx, "output after started");
+  assert(doneIdx > outputIdx, "done after output");
+  assert(completeIdx > doneIdx, "complete after done");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

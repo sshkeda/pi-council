@@ -2392,6 +2392,101 @@ await test("T120: Council.on returns working unsubscribe function", async () => 
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Concurrent & Stress Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Concurrent & Stress Tests ──\n");
+
+await test("T121: Three concurrent councils complete independently", async () => {
+  const councils = [
+    new Council("Concurrent A"),
+    new Council("Concurrent B"),
+    new Council("Concurrent C"),
+  ];
+
+  for (const c of councils) {
+    c.spawn({
+      models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+      cwd: __dirname,
+      piBinary: "node",
+      piBinaryArgs: [MOCK_PI],
+    });
+  }
+
+  const results = await Promise.all(councils.map(c => c.waitForCompletion()));
+  assert(results.every(r => r.members[0].state === "done"), "all done");
+  // All should have different runIds
+  const runIds = new Set(results.map(r => r.runId));
+  assert(runIds.size === 3, "3 unique runIds");
+});
+
+await test("T122: Rapid spawn and cancel cycle", async () => {
+  for (let i = 0; i < 5; i++) {
+    const council = new Council(`Rapid cycle ${i}`);
+    council.spawn({
+      models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+      cwd: __dirname,
+      piBinary: "node",
+      piBinaryArgs: [MOCK_PI],
+    });
+    council.cancel();
+    await council.waitForCompletion();
+    assert(council.isComplete(), `cycle ${i} complete`);
+  }
+});
+
+await test("T123: Council with all members failing", async () => {
+  const council = new Council("All fail");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete");
+  assert(council.getStatus().members.every(m => m.state === "failed"), "all failed");
+  assert(council.getStatus().finishedCount === 2, "2 finished");
+});
+
+await test("T124: Council getResult called multiple times returns consistent data", async () => {
+  const council = new Council("Consistent result");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const r1 = council.getResult();
+  const r2 = council.getResult();
+  assert(r1.runId === r2.runId, "same runId");
+  assert(r1.members[0].output === r2.members[0].output, "same output");
+  assert(r1.prompt === r2.prompt, "same prompt");
+});
+
+await test("T125: Registry list returns all councils in order", async () => {
+  const registry = new CouncilRegistry();
+  const ids = [];
+  for (let i = 0; i < 5; i++) {
+    const c = new Council(`List order ${i}`);
+    registry.add(c);
+    ids.push(c.runId);
+  }
+
+  const listed = registry.list().map(c => c.runId);
+  assert(listed.length === 5, "5 councils");
+  for (let i = 0; i < 5; i++) {
+    assert(listed[i] === ids[i], `order preserved at ${i}`);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

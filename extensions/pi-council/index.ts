@@ -1,252 +1,327 @@
 /**
- * pi-council extension — registers spawn_council tool.
- * Imports all logic from shared core — zero duplication.
+ * pi-council extension — registers council tools for the orchestrator.
+ *
+ * Tools:
+ *   spawn_council    — spawn a new council (profile or custom)
+ *   council_followup — send abort/steer to running members
+ *   cancel_council   — cancel individual member or entire council
+ *   council_status   — get status of all members
+ *   read_stream      — read a member's accumulated output
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import * as fs from "node:fs";
-import * as path from "node:path";
-
-// Shared core — single source of truth
-import { loadConfig, resolveModels, getRunsDir, type ModelSpec } from "../../src/core/config.js";
-import { spawnWorker, agentPaths } from "../../src/core/runner.js";
-import { parseStream } from "../../src/core/stream-parser.js";
-import { generateRunId } from "../../src/util/run-id.js";
-import type { RunMeta } from "../../src/core/run-state.js";
-
-interface AgentResult {
-  id: string;
-  model: string;
-  output: string;
-  exitCode: number | null;
-  finished: boolean;
-}
+import { Council, CouncilRegistry } from "../../src/core/council.js";
+import { PROFILES } from "../../src/core/profiles.js";
+import type { ModelSpec, CouncilEvent } from "../../src/core/types.js";
 
 export default function (pi: ExtensionAPI) {
-  // Track active councils so we can cancel them
-  const activeRuns = new Map<string, { children: import("node:child_process").ChildProcess[]; runDir: string }>();
+  const registry = new CouncilRegistry();
 
-  pi.registerTool({
-    name: "cancel_council",
-    label: "Cancel Council",
-    description: "Cancel a running council by run ID, or cancel the most recent one.",
-    promptSnippet: "Cancel a running council.",
-    parameters: Type.Object({
-      runId: Type.Optional(Type.String({ description: "Run ID to cancel. Omit to cancel the most recent." })),
-    }),
-    async execute(_toolCallId, params) {
-      let targetId = params.runId;
-
-      if (!targetId) {
-        // Cancel most recent
-        const keys = [...activeRuns.keys()];
-        if (keys.length === 0) {
-          return { content: [{ type: "text", text: "No active councils to cancel." }], details: {} };
-        }
-        targetId = keys[keys.length - 1];
-      }
-
-      const run = activeRuns.get(targetId);
-      if (!run) {
-        return { content: [{ type: "text", text: `No active council with ID: ${targetId}` }], details: {} };
-      }
-
-      for (const child of run.children) {
-        try { child.kill("SIGTERM"); } catch {}
-      }
-      activeRuns.delete(targetId);
-
-      return {
-        content: [{ type: "text", text: `Cancelled council: ${targetId}` }],
-        details: {},
-      };
-    },
-  });
-
+  // ─── spawn_council ─────────────────────────────────────────────────
   pi.registerTool({
     name: "spawn_council",
     label: "Spawn Council",
     description:
-      "Spawn multiple AI models (Claude, GPT, Gemini, Grok) in parallel to get independent opinions. " +
-      "Returns immediately — continue working. Results are auto-delivered when all agents finish.",
+      "Spawn multiple AI models in parallel to get independent opinions. " +
+      "Returns immediately — results auto-delivered. " +
+      "Each model is a separate pi agent with its own tools and context.",
     promptSnippet:
-      "Spawn 4 AI models for independent opinions. Returns immediately; results auto-delivered via followUp.",
+      "Spawn multiple AI models for independent opinions. Returns immediately; results auto-delivered via followUp.",
     promptGuidelines: [
-      "Use spawn_council when you need diverse perspectives on a question — architecture decisions, code review, investment analysis, or any high-stakes judgment call.",
-      "After calling spawn_council, continue your foreground work. Results arrive automatically as a followUp message.",
-      "Each model is a separate pi instance with its own tools. They do their own research independently.",
+      "Use spawn_council when you need diverse perspectives on a question.",
+      "After calling spawn_council, continue your foreground work. Each model's result is delivered as soon as it finishes, and a final combined summary arrives when all are done.",
+      "Each model is a separate agent with its own tools. They do their own research independently.",
       "The point is surfacing disagreement, not consensus. Pay attention to the dissenter.",
+      "IMPORTANT: When formulating the question, strip your own conclusions and opinions. Present context neutrally. Do NOT lead the models toward a particular answer. The value comes from unbiased, independent perspectives.",
+      "Do NOT include your own analysis or preferred solution in the question. Instead, present the raw situation and ask for their assessment.",
     ],
     parameters: Type.Object({
-      question: Type.String({ description: "Question for the council" }),
+      question: Type.String({ description: "Question for the council. Frame it neutrally — do not inject your own opinions or conclusions." }),
       models: Type.Optional(
         Type.Array(Type.String(), {
           description: 'Model IDs to use (default: all 4). e.g. ["claude", "grok"]',
+        }),
+      ),
+      profile: Type.Optional(
+        Type.String({
+          description: `Spawn profile: ${Object.keys(PROFILES).join(", ")}. Default: "max"`,
         }),
       ),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const isInteractive = ctx.hasUI;
-      const config = loadConfig();
 
-      let models: ModelSpec[];
+      const council = new Council(params.question);
+      registry.add(council);
+
+      let finishedCount = 0;
+      let totalMembers = 0;
+      let delivered = false;
+
+      council.on((event: CouncilEvent) => {
+        if (event.type === "member_started") {
+          totalMembers++;
+        }
+
+        // Deliver each member's result as it finishes
+        if (event.type === "member_done" || event.type === "member_failed") {
+          finishedCount++;
+          ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${totalMembers} done`);
+
+          // Send intermediate result (don't trigger a turn)
+          if (isInteractive && finishedCount < totalMembers) {
+            const memberId = event.type === "member_done"
+              ? (event as { memberId: string }).memberId
+              : (event as { memberId: string }).memberId;
+            const member = council.getMember(memberId);
+            if (member) {
+              const status = member.getStatus();
+              const icon = status.state === "done" ? "✅" : "❌";
+              pi.sendMessage(
+                {
+                  customType: "council-progress",
+                  content: `🏛️ ${icon} ${status.id.toUpperCase()} (${status.model.model}) — ${finishedCount}/${totalMembers} done\n\n${status.output || status.error || "(no output)"}`,
+                  display: true,
+                },
+                { deliverAs: "followUp", triggerTurn: false },
+              );
+            }
+          }
+        }
+
+        // Deliver final combined result
+        if (event.type === "council_complete" && isInteractive && !delivered) {
+          delivered = true;
+          ctx.ui.setStatus("council", undefined);
+
+          const result = council.getResult();
+          const summary = result.members
+            .map((m) => {
+              const icon = m.state === "done" ? "✅" : "❌";
+              return `## ${icon} ${m.id.toUpperCase()} (${m.model.model})\n\n${m.output || m.error || "(no output)"}`;
+            })
+            .join("\n\n---\n\n");
+
+          pi.sendMessage(
+            {
+              customType: "council-result",
+              content: `🏛️ All ${result.members.length} council members responded for: "${result.prompt}"\n\n${summary}`,
+              display: true,
+            },
+            { deliverAs: "followUp", triggerTurn: true },
+          );
+        }
+      });
+
       try {
-        models = resolveModels(config, params.models);
-      } catch {
-        models = [];
-      }
+        const spawnOptions: Record<string, unknown> = {
+          cwd: ctx.cwd,
+        };
 
-      if (models.length === 0) {
+        if (params.profile) {
+          spawnOptions.profile = params.profile;
+        }
+
+        if (params.models && params.models.length > 0) {
+          // Resolve model IDs to ModelSpecs from the profile
+          const profileName = params.profile ?? "max";
+          const profile = PROFILES[profileName] ?? PROFILES.max;
+          const resolved = profile.models.filter((m) =>
+            params.models!.some((id) => id.toLowerCase() === m.id.toLowerCase()),
+          );
+          if (resolved.length > 0) {
+            spawnOptions.models = resolved;
+          }
+        }
+
+        council.spawn(spawnOptions as any);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
         return {
-          content: [{ type: "text", text: "No valid models selected." }],
+          content: [{ type: "text", text: `Failed to spawn council: ${msg}` }],
           details: {},
         };
       }
 
-      const runId = generateRunId();
-      const runDir = path.join(getRunsDir(), runId);
-      fs.mkdirSync(runDir, { recursive: true });
-      fs.writeFileSync(path.join(runDir, "prompt.txt"), params.question);
-
-      const meta: RunMeta = {
-        runId,
-        prompt: params.question,
-        startedAt: Date.now(),
-        agents: models,
-        cwd: ctx.cwd,
-      };
-      fs.writeFileSync(path.join(runDir, "meta.json"), JSON.stringify(meta, null, 2));
-
-      const results: AgentResult[] = models.map((m) => ({
-        id: m.id,
-        model: m.model,
-        output: "",
-        exitCode: null,
-        finished: false,
-      }));
-
-      let finishedCount = 0;
-      let delivered = false;
-      const children: import("node:child_process").ChildProcess[] = [];
-      activeRuns.set(runId, { children, runDir });
-
-      function buildSummary(): string {
-        return results
-          .map((r) => {
-            const icon = r.exitCode === 0 ? "✅" : "❌";
-            return `## ${icon} ${r.id.toUpperCase()} (${r.model})\n\n${r.output || "(no output)"}`;
-          })
-          .join("\n\n---\n\n");
-      }
-
-      function writeArtifacts(summary: string): void {
-        try {
-          fs.writeFileSync(path.join(runDir, "results.md"), `# Council Results\n\n${summary}`);
-          fs.writeFileSync(
-            path.join(runDir, "results.json"),
-            JSON.stringify({
-              runId,
-              prompt: params.question,
-              completedAt: Date.now(),
-              workers: results.map((r) => ({
-                id: r.id,
-                model: r.model,
-                status: r.exitCode === 0 ? "done" : "failed",
-                finalText: r.output,
-                exitCode: r.exitCode,
-              })),
-            }, null, 2),
-          );
-        } catch {}
-      }
-
-      function deliverResults(): void {
-        if (delivered || !isInteractive) return; // guard: don't deliver twice or in non-interactive mode
-        delivered = true;
-        activeRuns.delete(runId);
-        const summary = buildSummary();
-        writeArtifacts(summary);
-        pi.sendMessage(
-          {
-            customType: "council-result",
-            content: `🏛️ Council results for: "${params.question}"\n\n${summary}`,
-            display: true,
-          },
-          { deliverAs: "followUp", triggerTurn: true },
-        );
-      }
-
-      for (let i = 0; i < models.length; i++) {
-        const m = models[i];
-
-        // Use shared spawnWorker — detach=false so close events fire in-process
-        const { child } = spawnWorker(runDir, m, params.question, config, ctx.cwd, false);
-        children.push(child);
-
-        const handleFinish = (code: number | null, error?: string) => {
-          if (results[i].finished) return; // guard: error+close can both fire
-          results[i].finished = true;
-          results[i].exitCode = code;
-
-          if (error) {
-            results[i].output = error;
-          } else {
-            const paths = agentPaths(runDir, m.id);
-            const parsed = parseStream(paths.stream);
-            results[i].output = parsed.finalText || parsed.assistantText;
-          }
-
-          try { fs.writeFileSync(agentPaths(runDir, m.id).done, String(code ?? "")); } catch {}
-
-          finishedCount++;
-          ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${models.length} done`);
-
-          if (finishedCount === models.length) {
-            ctx.ui.setStatus("council", undefined);
-            deliverResults();
-          }
-        };
-
-        child.on("error", (err) => handleFinish(1, `spawn error: ${err.message}`));
-        child.on("close", (code) => handleFinish(code, undefined));
-      }
-
-      const modelNames = models.map((m) => m.id).join(", ");
+      const memberNames = council.getMembers().map((m) => m.id).join(", ");
 
       // Non-interactive: block until done
       if (!isInteractive) {
-        await new Promise<void>((resolve) => {
-          const interval = setInterval(() => {
-            if (finishedCount === models.length) {
-              clearInterval(interval);
-              resolve();
-            }
-          }, 500);
-        });
+        const result = await council.waitForCompletion();
+        const summary = result.members
+          .map((m) => {
+            const icon = m.state === "done" ? "✅" : "❌";
+            return `## ${icon} ${m.id.toUpperCase()} (${m.model.model})\n\n${m.output || m.error || "(no output)"}`;
+          })
+          .join("\n\n---\n\n");
 
-        const summary = buildSummary();
-        writeArtifacts(summary);
         return {
           content: [{ type: "text", text: `🏛️ Council results:\n\n${summary}` }],
-          details: { runId, models: modelNames },
+          details: { runId: council.runId, models: memberNames },
         };
       }
 
-      // Interactive: return immediately, results arrive via followUp
+      // Interactive: return immediately
       return {
         content: [
           {
             type: "text",
             text:
-              `Council spawned: ${modelNames} (run: ${runId})\n` +
+              `Council spawned: ${memberNames} (run: ${council.runId}, profile: ${params.profile ?? "max"})\n` +
               `Results will be delivered automatically when all agents finish.\n` +
               `Continue with your other work.`,
           },
         ],
-        details: { runId, models: modelNames },
+        details: { runId: council.runId, models: memberNames },
       };
+    },
+  });
+
+  // ─── council_followup ──────────────────────────────────────────────
+  pi.registerTool({
+    name: "council_followup",
+    label: "Council Follow-up",
+    description:
+      "Send a follow-up message to running council members. " +
+      "Type 'abort' interrupts immediately and injects new context. " +
+      "Type 'steer' queues the message for after the current tool call completes.",
+    promptSnippet: "Send abort or steer follow-up to council members.",
+    parameters: Type.Object({
+      message: Type.String({ description: "The follow-up message to send" }),
+      type: Type.Union([Type.Literal("abort"), Type.Literal("steer")], {
+        description: '"abort" to interrupt immediately, "steer" to queue after current tool call',
+      }),
+      runId: Type.Optional(Type.String({ description: "Run ID. Omit for most recent council." })),
+      memberIds: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Target specific members. Omit to send to all running members.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const council = params.runId ? registry.get(params.runId) : registry.getLatest();
+      if (!council) {
+        return { content: [{ type: "text" as const, text: "No active council found." }], details: {} as Record<string, unknown> };
+      }
+
+      try {
+        await council.followUp({
+          type: params.type,
+          message: params.message,
+          memberIds: params.memberIds,
+        });
+        const targetDesc = params.memberIds ? params.memberIds.join(", ") : "all running members";
+        return {
+          content: [{ type: "text" as const, text: `Sent ${params.type} follow-up to ${targetDesc}: "${params.message}"` }],
+          details: { runId: council.runId, type: params.type } as Record<string, unknown>,
+        };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: `Follow-up failed: ${msg}` }], details: {} as Record<string, unknown> };
+      }
+    },
+  });
+
+  // ─── cancel_council ────────────────────────────────────────────────
+  pi.registerTool({
+    name: "cancel_council",
+    label: "Cancel Council",
+    description: "Cancel a running council or specific members.",
+    promptSnippet: "Cancel a running council or specific members.",
+    parameters: Type.Object({
+      runId: Type.Optional(Type.String({ description: "Run ID. Omit for most recent." })),
+      memberIds: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Cancel specific members. Omit to cancel entire council.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const council = params.runId ? registry.get(params.runId) : registry.getLatest();
+      if (!council) {
+        return { content: [{ type: "text" as const, text: "No active council found." }], details: {} as Record<string, unknown> };
+      }
+
+      council.cancel(params.memberIds);
+      const desc = params.memberIds
+        ? `Cancelled members: ${params.memberIds.join(", ")}`
+        : `Cancelled entire council: ${council.runId}`;
+      return { content: [{ type: "text" as const, text: desc }], details: { runId: council.runId } as Record<string, unknown> };
+    },
+  });
+
+  // ─── council_status ────────────────────────────────────────────────
+  pi.registerTool({
+    name: "council_status",
+    label: "Council Status",
+    description: "Get detailed status of a council and all its members.",
+    promptSnippet: "Check council status — see which members are running, done, or failed.",
+    parameters: Type.Object({
+      runId: Type.Optional(Type.String({ description: "Run ID. Omit for most recent." })),
+    }),
+    async execute(_toolCallId, params) {
+      const council = params.runId ? registry.get(params.runId) : registry.getLatest();
+      if (!council) {
+        return { content: [{ type: "text" as const, text: "No active council found." }], details: {} as Record<string, unknown> };
+      }
+
+      const status = council.getStatus();
+      const lines = [
+        `Council: ${status.runId}`,
+        `Prompt: "${status.prompt}"`,
+        `Progress: ${status.finishedCount}/${status.members.length} done`,
+        `Complete: ${status.isComplete}`,
+        "",
+        ...status.members.map((m) => {
+          const icon = m.state === "done" ? "✅" : m.state === "running" ? "🔄" : "❌";
+          const duration = m.durationMs ? ` (${(m.durationMs / 1000).toFixed(1)}s)` : "";
+          const errMsg = m.error ? ` — ${m.error}` : "";
+          const outputPreview = m.output ? ` — ${m.output.slice(0, 100)}...` : "";
+          return `${icon} ${m.id} (${m.model.model}): ${m.state}${duration}${errMsg}${outputPreview}`;
+        }),
+      ];
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        details: { runId: status.runId, complete: status.isComplete } as Record<string, unknown>,
+      };
+    },
+  });
+
+  // ─── read_stream ───────────────────────────────────────────────────
+  pi.registerTool({
+    name: "read_stream",
+    label: "Read Council Stream",
+    description: "Read the accumulated output of a specific council member.",
+    promptSnippet: "Read a council member's full output stream.",
+    parameters: Type.Object({
+      memberId: Type.String({ description: 'Member ID (e.g. "claude", "gpt")' }),
+      runId: Type.Optional(Type.String({ description: "Run ID. Omit for most recent." })),
+    }),
+    async execute(_toolCallId, params) {
+      const council = params.runId ? registry.get(params.runId) : registry.getLatest();
+      if (!council) {
+        return { content: [{ type: "text" as const, text: "No active council found." }], details: {} as Record<string, unknown> };
+      }
+
+      try {
+        const output = council.readStream(params.memberId);
+        const member = council.getMember(params.memberId)!;
+        const status = member.getStatus();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `## ${params.memberId.toUpperCase()} (${status.model.model}) — ${status.state}\n\n${output || "(no output yet)"}`,
+          }],
+          details: { memberId: params.memberId, state: status.state, runId: council.runId } as Record<string, unknown>,
+        };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: `Error: ${msg}` }], details: {} as Record<string, unknown> };
+      }
     },
   });
 }

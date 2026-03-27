@@ -127,7 +127,8 @@ export class CouncilMember {
 
     this.child.on("close", (code) => {
       this.exitCode = code;
-      if (this.state === "running") {
+      // Only transition if still running — don't overwrite cancelled/failed states
+      if (this.state === "running" || this.state === "spawning") {
         if (code === 0) {
           this.state = "done";
           this.finishedAt = Date.now();
@@ -198,9 +199,10 @@ export class CouncilMember {
    * Kill the member process entirely.
    */
   cancel(): void {
-    if (this.child && this.state === "running") {
+    if (this.child && (this.state === "running" || this.state === "spawning")) {
       this.state = "cancelled";
       this.finishedAt = Date.now();
+      this.emit({ type: "member_failed", memberId: this.id, error: "cancelled" });
       try {
         this.child.kill("SIGTERM");
       } catch {}

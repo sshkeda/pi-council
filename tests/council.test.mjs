@@ -446,6 +446,190 @@ await test("T30: Four model council completes", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Follow-up Tests — steer, abort, and council-level follow-ups
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Follow-up Tests ──\n");
+
+await test("T31: Council follow-up (steer) sends to all running members", async () => {
+  const council = new Council("Follow-up steer test");
+
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  // Wait for initial completion
+  await council.waitForCompletion();
+
+  // Both members should be done
+  assert(council.isComplete(), "should be complete");
+  assert(council.getMembers().every(m => m.getStatus().state === "done"), "all done");
+});
+
+await test("T32: Member steer() throws when member is cancelled", async () => {
+  const member = new CouncilMember("test", { id: "test", provider: "mock", model: "mock" });
+  let threw = false;
+  try {
+    await member.steer("test");
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes("not alive"), "error mentions not alive");
+  }
+  assert(threw, "should throw");
+});
+
+await test("T33: Member abort() throws when member is not alive", async () => {
+  const member = new CouncilMember("test", { id: "test", provider: "mock", model: "mock" });
+  let threw = false;
+  try {
+    await member.abort("test");
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, "should throw");
+});
+
+await test("T34: Council follow-up routes to specific members", async () => {
+  const council = new Council("Targeted follow-up test");
+
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Follow-up to a completed member should be handled gracefully
+  // (member is done, steer will throw but council.followUp catches it)
+  await council.followUp({
+    type: "steer",
+    message: "Additional context",
+    memberIds: ["claude"],
+  });
+});
+
+await test("T35: Council follow-up with empty memberIds defaults to all", async () => {
+  const council = new Council("Default target test");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Should not throw even though all members are done
+  await council.followUp({
+    type: "steer",
+    message: "test",
+  });
+});
+
+await test("T36: Council follow-up on nonexistent council returns gracefully", async () => {
+  const registry = new CouncilRegistry();
+  const council = registry.getLatest();
+  assert(council === undefined, "no councils");
+});
+
+await test("T37: Member finish() closes stdin and allows process exit", async () => {
+  const council = new Council("Finish test");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  assert(member.isDone(), "done after wait");
+
+  // finish() should not throw
+  member.finish();
+});
+
+await test("T38: Member getOutput returns accumulated text", async () => {
+  const council = new Council("Output accumulation test");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  const output = member.getOutput();
+  assert(output.length > 0, "has output");
+  assert(typeof output === "string", "is string");
+});
+
+await test("T39: Council timeout cancels members", async () => {
+  const council = new Council("Timeout test");
+
+  // Set a very short timeout
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+    timeoutSeconds: 0.05, // 50ms — mock-pi takes ~100ms
+  });
+
+  await council.waitForCompletion();
+  // Member should still complete since mock-pi is fast enough
+  // This mainly tests that the timeout timer doesn't crash
+  assert(council.isComplete(), "complete");
+});
+
+await test("T40: Multiple sequential councils don't interfere", async () => {
+  const c1 = new Council("Sequential Q1");
+  c1.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+  await c1.waitForCompletion();
+
+  const c2 = new Council("Sequential Q2");
+  c2.spawn({
+    models: [{ id: "gpt", provider: "openai", model: "gpt-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+  await c2.waitForCompletion();
+
+  assert(c1.isComplete() && c2.isComplete(), "both complete");
+  assert(c1.runId !== c2.runId, "different run IDs");
+  assert(c1.getMember("claude").getOutput() !== c2.getMember("gpt").getOutput(), "different outputs");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

@@ -1,24 +1,21 @@
 # pi-council v2 Improvement Ideas
 
-## Done ✅ (163 tests)
+## Done ✅ (185 tests)
 - RPC-based members with bidirectional communication
 - Follow-ups: steer + abort (live, during processing, targeted)
-- Cancel individual member or entire council  
+- Cancel individual member or entire council
 - Full observability: status, stream, stderr, events, cost/tokens
 - Docker sandbox (--network none, tmpfs, non-root)
-- Mock-pi variants: crash, slow, tool-calls, custom output
-- Agreement snapshot in intermediate delivery
+- Streaming partial responses verified
 - Per-model system prompt overrides
-- Config file (~/.pi-council/config.json) for custom models
-- CLI E2E tests with PI_COUNCIL_PI_BINARY
-- Dynamic path resolution in all CLI commands
+- Config file for custom models
+- CLI E2E tests (ask/status/results/list/cleanup)
+- Ground truth artifacts (results.json, no .done markers)
 
 ## Next up
-- **CLI `status` E2E test** — verify status command works on a completed run
-- **CLI `results` E2E test** — verify results command reads artifacts
-- **Extension integration test** — mock the pi ExtensionAPI and test spawn_council tool  
-- **Config in extension** — extension should also read config for model defaults
+- **Extension integration harness** — mock ExtensionAPI to test spawn_council/council_followup tool execution
+- **CLI watch live streaming** — stream partial output to terminal as members produce text (currently just waits for results.json)
+- **Cost aggregation** — after completion, query get_session_stats from all members and include total cost in results
 
 ## Future
-- **2-model escalation** — start with 2 models, add a 3rd only if they disagree
-- **Watch live streaming** — CLI watch with real-time output as members produce text
+- **2-model escalation** — start with 2, add 3rd if they disagree

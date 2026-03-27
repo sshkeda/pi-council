@@ -5,8 +5,11 @@ RUN useradd -m -s /bin/bash testuser
 
 WORKDIR /app
 
-# Copy only what's needed for tests
-COPY package.json tsconfig.json ./
+# Copy package files and install deps (needed for extension tests)
+COPY package.json ./
+RUN npm install --ignore-scripts 2>/dev/null || true
+
+# Copy build output and tests
 COPY dist/ dist/
 COPY tests/ tests/
 COPY src/ src/

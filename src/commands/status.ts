@@ -1,59 +1,57 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadConfig, getRunsDir, getLatestFile } from "../core/config.js";
-import { loadMeta, refreshRun } from "../core/run-state.js";
-import { bold, green, red, yellow, dim } from "../util/format.js";
+import * as os from "node:os";
 
-export function resolveRunId(runId?: string): string {
-  if (runId) return runId;
-  const latestFile = getLatestFile();
-  if (fs.existsSync(latestFile)) {
-    return fs.readFileSync(latestFile, "utf-8").trim();
+const RUNS_DIR = path.join(os.homedir(), ".pi-council", "runs");
+
+export function status(runId?: string): void {
+  const targetId = runId ?? getLatestRunId();
+  if (!targetId) {
+    process.stderr.write("No runs found.\n");
+    process.exitCode = 1;
+    return;
   }
-  throw new Error("No run specified and no latest run found.");
+
+  const runDir = path.join(RUNS_DIR, targetId);
+  if (!fs.existsSync(runDir)) {
+    process.stderr.write(`Run not found: ${targetId}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Check for results.json (completed run)
+  const resultsPath = path.join(runDir, "results.json");
+  if (fs.existsSync(resultsPath)) {
+    const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+    process.stdout.write(`Run: ${results.runId}\n`);
+    process.stdout.write(`Prompt: "${results.prompt}"\n`);
+    process.stdout.write(`Status: complete\n\n`);
+    for (const m of results.members) {
+      const icon = m.state === "done" ? "✅" : "❌";
+      const duration = m.durationMs ? ` (${(m.durationMs / 1000).toFixed(1)}s)` : "";
+      process.stdout.write(`${icon} ${m.id}: ${m.state}${duration}\n`);
+    }
+    return;
+  }
+
+  // Check meta.json for in-progress run
+  const metaPath = path.join(runDir, "meta.json");
+  if (fs.existsSync(metaPath)) {
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+    process.stdout.write(`Run: ${meta.runId}\n`);
+    process.stdout.write(`Prompt: "${meta.prompt}"\n`);
+    process.stdout.write(`Status: in progress\n`);
+  }
 }
 
-export function status(runId?: string): boolean {
-  const resolved = resolveRunId(runId);
-  const runDir = path.join(getRunsDir(), resolved);
-  const meta = loadMeta(runDir);
-
-  if (!meta) {
-    process.stderr.write(`No run found: ${resolved}\n`);
-    return false;
+function getLatestRunId(): string | undefined {
+  const latestFile = path.join(os.homedir(), ".pi-council", "latest-run-id");
+  try {
+    return fs.readFileSync(latestFile, "utf-8").trim();
+  } catch {
+    // Fall back to most recent run directory
+    if (!fs.existsSync(RUNS_DIR)) return undefined;
+    const dirs = fs.readdirSync(RUNS_DIR).sort().reverse();
+    return dirs[0];
   }
-
-  const config = loadConfig();
-  const states = refreshRun(runDir, meta.agents, config.stall_seconds);
-  const elapsed = ((Date.now() - meta.startedAt) / 1000).toFixed(0);
-
-  let doneCount = 0;
-  let failedCount = 0;
-
-  for (const w of states) {
-    const tc = w.toolCalls > 0 ? ` tools:${w.toolCalls}` : "";
-    const preview = w.preview ? ` | ${w.preview}...` : "";
-
-    switch (w.status) {
-      case "done":
-        doneCount++;
-        process.stderr.write(`  ${green("✅")} ${bold(w.id.padEnd(8))} done${tc}${preview}\n`);
-        break;
-      case "failed":
-        doneCount++;
-        failedCount++;
-        process.stderr.write(`  ${red("❌")} ${bold(w.id.padEnd(8))} failed: ${w.errorMessage ?? "unknown"}\n`);
-        break;
-      case "stalled":
-        process.stderr.write(`  ${yellow("⚠️")}  ${bold(w.id.padEnd(8))} stalled${tc}${preview}\n`);
-        break;
-      case "running":
-        process.stderr.write(`  ${yellow("⏳")} ${bold(w.id.padEnd(8))} running${tc}${preview}\n`);
-        break;
-    }
-  }
-
-  process.stderr.write(`\n  ${doneCount}/${states.length} complete, ${failedCount} failed (${elapsed}s elapsed)\n`);
-
-  return states.every((w) => w.status === "done" || w.status === "failed");
 }

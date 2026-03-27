@@ -1,49 +1,41 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getRunsDir, getLatestFile, loadConfig } from "../core/config.js";
-import { loadMeta, refreshRun } from "../core/run-state.js";
-import { bold, dim, green, yellow } from "../util/format.js";
+import * as os from "node:os";
+
+const RUNS_DIR = path.join(os.homedir(), ".pi-council", "runs");
 
 export function list(): void {
-  const runsDir = getRunsDir();
-  if (!fs.existsSync(runsDir)) {
-    process.stderr.write("No runs found.\n");
+  if (!fs.existsSync(RUNS_DIR)) {
+    process.stdout.write("No runs found.\n");
     return;
   }
 
-  const dirs = fs.readdirSync(runsDir).sort().reverse();
+  const dirs = fs.readdirSync(RUNS_DIR).sort().reverse();
   if (dirs.length === 0) {
-    process.stderr.write("No runs found.\n");
+    process.stdout.write("No runs found.\n");
     return;
   }
-
-  const latestFile = getLatestFile();
-  const latest = fs.existsSync(latestFile) ? fs.readFileSync(latestFile, "utf-8").trim() : "";
-  const config = loadConfig();
-
-  process.stderr.write(bold("RUN-ID".padEnd(22) + "STATUS".padEnd(12) + "AGENTS".padEnd(10) + "PROMPT") + "\n");
-  process.stderr.write("─".repeat(70) + "\n");
 
   for (const dir of dirs) {
-    const runDir = path.join(runsDir, dir);
-    const meta = loadMeta(runDir);
-    if (!meta) continue;
+    const metaPath = path.join(RUNS_DIR, dir, "meta.json");
+    const resultsPath = path.join(RUNS_DIR, dir, "results.json");
 
-    const states = refreshRun(runDir, meta.agents, config.stall_seconds);
-    const done = states.filter((s) => s.status === "done" || s.status === "failed").length;
-    const total = states.length;
-    const allDone = done === total;
-    const failed = states.filter((s) => s.status === "failed").length;
+    let prompt = "?";
+    let status = "unknown";
+    let models = "";
 
-    const statusStr = allDone
-      ? (failed > 0 ? yellow(`${done - failed}/${total} ok`) : green("done"))
-      : yellow(`${done}/${total}`);
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      prompt = meta.prompt?.slice(0, 60) ?? "?";
+      models = (meta.models ?? []).map((m: { id: string }) => m.id).join(", ");
+    } catch {}
 
-    const marker = dir === latest ? " ←" : "";
-    const promptPreview = meta.prompt.replace(/\n/g, " ").slice(0, 40);
+    if (fs.existsSync(resultsPath)) {
+      status = "✅ done";
+    } else {
+      status = "🔄 running";
+    }
 
-    process.stderr.write(
-      `${dim(dir)}${marker}  ${statusStr.padEnd(12)} ${dim(`${total} models`).padEnd(16)} ${promptPreview}\n`,
-    );
+    process.stdout.write(`${dir}  ${status}  [${models}]  "${prompt}"\n`);
   }
 }

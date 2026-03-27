@@ -1,82 +1,39 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadConfig, getRunsDir } from "../core/config.js";
-import { loadMeta, refreshWorker, type RunMeta } from "../core/run-state.js";
-import { agentPaths } from "../core/runner.js";
-import { resolveRunId } from "./status.js";
-import { bold, green, red, dim } from "../util/format.js";
+import * as os from "node:os";
 
-/**
- * Watch a council run — prints each agent's result the instant it finishes.
- * Uses fs.watch + PID liveness checks. No timeout — agents handle their own limits.
- */
+const RUNS_DIR = path.join(os.homedir(), ".pi-council", "runs");
+
 export async function watch(runId?: string): Promise<void> {
-  const resolved = resolveRunId(runId);
-  const runDir = path.join(getRunsDir(), resolved);
-  const meta = loadMeta(runDir);
-
-  if (!meta) {
-    process.stderr.write(`No run found: ${resolved}\n`);
+  const targetId = runId ?? getLatestRunId();
+  if (!targetId) {
+    process.stderr.write("No runs found.\n");
     process.exitCode = 1;
     return;
   }
 
-  const config = loadConfig();
-  const remaining = new Set(meta.agents.map((a) => a.id));
+  const runDir = path.join(RUNS_DIR, targetId);
+  const resultsPath = path.join(runDir, "results.md");
 
-  checkAndPrint(runDir, meta, config.stall_seconds, remaining);
+  process.stderr.write(`Watching: ${targetId}\n`);
 
-  if (remaining.size === 0) {
-    process.stderr.write(dim("All agents already finished.\n"));
-    return;
+  // Poll for results
+  while (!fs.existsSync(resultsPath)) {
+    await new Promise((r) => setTimeout(r, 1000));
+    process.stderr.write(".");
   }
 
-  process.stderr.write(dim(`Watching ${remaining.size} remaining agent(s)...\n\n`));
-
-  return new Promise<void>((resolve) => {
-    const done = () => {
-      watcher.close();
-      clearInterval(pidCheck);
-      resolve();
-    };
-
-    const watcher = fs.watch(runDir, () => {
-      checkAndPrint(runDir, meta, config.stall_seconds, remaining);
-      if (remaining.size === 0) done();
-    });
-
-    const pidCheck = setInterval(() => {
-      checkAndPrint(runDir, meta, config.stall_seconds, remaining);
-      if (remaining.size === 0) done();
-    }, 2_000);
-  });
+  process.stderr.write("\n\n");
+  process.stdout.write(fs.readFileSync(resultsPath, "utf-8"));
 }
 
-function checkAndPrint(
-  runDir: string,
-  meta: RunMeta,
-  stallSeconds: number,
-  remaining: Set<string>,
-): void {
-  for (const id of [...remaining]) {
-    const agent = meta.agents.find((a) => a.id === id);
-    if (!agent) { remaining.delete(id); continue; }
-
-    const w = refreshWorker(runDir, agent, stallSeconds);
-
-    if (w.status === "done" || w.status === "failed") {
-      remaining.delete(id);
-      const icon = w.status === "done" ? green("✅") : red("❌");
-      process.stdout.write(`${icon} ${bold(w.id.toUpperCase())} (${w.model})\n`);
-      if (w.finalText) {
-        process.stdout.write(w.finalText + "\n");
-      } else {
-        process.stdout.write(`(no output: ${w.errorMessage ?? "unknown"})\n`);
-      }
-      if (w.usage.cost > 0) {
-        process.stdout.write(dim(`  cost: $${w.usage.cost.toFixed(4)} | tokens: ↑${w.usage.input} ↓${w.usage.output}`) + "\n");
-      }
-      process.stdout.write("\n");
-    }
+function getLatestRunId(): string | undefined {
+  const latestFile = path.join(os.homedir(), ".pi-council", "latest-run-id");
+  try {
+    return fs.readFileSync(latestFile, "utf-8").trim();
+  } catch {
+    if (!fs.existsSync(RUNS_DIR)) return undefined;
+    const dirs = fs.readdirSync(RUNS_DIR).sort().reverse();
+    return dirs[0];
   }
 }

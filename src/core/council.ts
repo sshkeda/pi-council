@@ -21,8 +21,10 @@ import type {
 
 type EventListener = (event: CouncilEvent) => void;
 
-const COUNCIL_DIR = path.join(os.homedir(), ".pi-council");
-const RUNS_DIR = path.join(COUNCIL_DIR, "runs");
+/** Resolve paths at call time so $HOME overrides work in tests/Docker */
+function getRunsDir(): string {
+  return path.join(os.homedir(), ".pi-council", "runs");
+}
 
 export class Council {
   readonly runId: string;
@@ -36,7 +38,7 @@ export class Council {
     this.runId = runId ?? generateRunId();
     this.prompt = prompt;
     this.startedAt = Date.now();
-    this.runDir = path.join(RUNS_DIR, this.runId);
+    this.runDir = path.join(getRunsDir(), this.runId);
   }
 
   /**

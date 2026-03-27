@@ -60,16 +60,13 @@ export default function (pi: ExtensionAPI) {
           totalMembers++;
         }
 
-        // Deliver each member's result as it finishes
+        // Deliver each member's result as it finishes — every member, including the last
         if (event.type === "member_done" || event.type === "member_failed") {
           finishedCount++;
           ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${totalMembers} done`);
 
-          // Send intermediate result (don't trigger a turn)
-          if (isInteractive && finishedCount < totalMembers) {
-            const memberId = event.type === "member_done"
-              ? (event as { memberId: string }).memberId
-              : (event as { memberId: string }).memberId;
+          if (isInteractive) {
+            const memberId = (event as { memberId: string }).memberId;
             const member = council.getMember(memberId);
             if (member) {
               const status = member.getStatus();
@@ -92,6 +89,20 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.setStatus("council", undefined);
 
           const result = council.getResult();
+          const succeeded = result.members.filter(m => m.state === "done").length;
+          const failed = result.members.filter(m => m.state !== "done").length;
+          const totalDuration = Math.max(...result.members.map(m => m.durationMs ?? 0));
+
+          const header = [
+            `🏛️ All ${result.members.length} council members responded for: "${result.prompt}"`,
+            ``,
+            `Summary:`,
+            `- total: ${result.members.length}`,
+            `- succeeded: ${succeeded}`,
+            `- failed: ${failed}`,
+            `- total duration: ${(totalDuration / 1000).toFixed(1)}s`,
+          ].join("\n");
+
           const summary = result.members
             .map((m) => {
               const icon = m.state === "done" ? "✅" : "❌";
@@ -102,7 +113,7 @@ export default function (pi: ExtensionAPI) {
           pi.sendMessage(
             {
               customType: "council-result",
-              content: `🏛️ All ${result.members.length} council members responded for: "${result.prompt}"\n\n${summary}`,
+              content: `${header}\n\n${summary}`,
               display: true,
             },
             { deliverAs: "followUp", triggerTurn: true },

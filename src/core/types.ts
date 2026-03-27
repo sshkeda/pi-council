@@ -59,6 +59,8 @@ export interface MemberStatus {
   durationMs?: number;
   /** Exit code of the process */
   exitCode?: number | null;
+  /** Session stats (tokens, cost) if available */
+  stats?: { tokens: { input: number; output: number; total: number }; cost: number } | null;
 }
 
 export type FollowUpType = "abort" | "steer";
@@ -95,6 +97,7 @@ export interface CouncilResult {
     output: string;
     error?: string;
     durationMs?: number;
+    stats?: { tokens: { input: number; output: number; total: number }; cost: number } | null;
   }[];
 }
 

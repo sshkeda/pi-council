@@ -43,6 +43,7 @@ export class CouncilMember {
     reject: (err: Error) => void;
   }>();
   private responseIdCounter = 0;
+  private sessionStats: { tokens: { input: number; output: number; total: number }; cost: number } | null = null;
 
   constructor(id: string, model: ModelSpec) {
     this.id = id;
@@ -214,6 +215,7 @@ export class CouncilMember {
       finishedAt: this.finishedAt,
       durationMs: this.finishedAt ? this.finishedAt - this.startedAt : undefined,
       exitCode: this.exitCode,
+      stats: this.sessionStats,
     };
   }
 
@@ -222,6 +224,13 @@ export class CouncilMember {
    */
   getOutput(): string {
     return this.output;
+  }
+
+  /**
+   * Get the cached session stats (captured on agent_end).
+   */
+  getCachedStats(): { tokens: { input: number; output: number; total: number }; cost: number } | null {
+    return this.sessionStats;
   }
 
   /**
@@ -299,6 +308,17 @@ export class CouncilMember {
     }
   }
 
+  private async captureStats(): Promise<void> {
+    try {
+      const stats = await this.getSessionStats();
+      if (stats) {
+        this.sessionStats = stats;
+      }
+    } catch {
+      // Non-fatal — stats are optional
+    }
+  }
+
   private closeStdin(): void {
     try {
       if (this.child?.stdin?.writable) {
@@ -370,10 +390,10 @@ export class CouncilMember {
 
       case "agent_end":
         this.isStreaming = false;
-        // Always close stdin on agent_end. If a steer/followUp needs
-        // to send more work, it will re-open by calling abort(newPrompt).
-        // Keeping stdin open after agent_end causes the process to hang.
-        this.closeStdin();
+        // Capture cost/token stats before closing stdin
+        this.captureStats().finally(() => {
+          this.closeStdin();
+        });
         break;
 
       case "message_update": {

@@ -113,7 +113,11 @@ export default function (pi: ExtensionAPI) {
           const succeeded = result.members.filter(m => m.state === "done").length;
           const failedCount = result.members.filter(m => m.state !== "done").length;
           const totalDuration = Math.max(...result.members.map(m => m.durationMs ?? 0));
-          const totalCost = result.members.reduce((sum, m) => sum + (m.durationMs ?? 0), 0);
+          const totalCost = result.members.reduce((sum, m) => sum + (m.stats?.cost ?? 0), 0);
+          const totalTokens = result.members.reduce((sum, m) => sum + (m.stats?.tokens?.total ?? 0), 0);
+
+          const costLine = totalCost > 0 ? `\n- total cost: $${totalCost.toFixed(4)}` : "";
+          const tokensLine = totalTokens > 0 ? `\n- total tokens: ${totalTokens}` : "";
 
           const header = [
             `🏛️ All ${result.members.length} council members responded for: "${result.prompt}"`,
@@ -122,7 +126,7 @@ export default function (pi: ExtensionAPI) {
             `- total: ${result.members.length}`,
             `- succeeded: ${succeeded}`,
             `- failed: ${failedCount}`,
-            `- total duration: ${(totalDuration / 1000).toFixed(1)}s`,
+            `- total duration: ${(totalDuration / 1000).toFixed(1)}s${costLine}${tokensLine}`,
           ].join("\n");
 
           const summary = result.members

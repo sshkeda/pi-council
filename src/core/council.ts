@@ -229,6 +229,7 @@ export class Council {
           output: status.output,
           error: status.error,
           durationMs: status.durationMs,
+          stats: status.stats,
         };
       }),
     };

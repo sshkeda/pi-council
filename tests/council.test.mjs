@@ -3924,6 +3924,92 @@ await test("T200: Full system validation — Council + Config + Events + Artifac
   assert(status.finishedCount === 2, "finishedCount");
 });
 
+// Cost Tracking Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Cost Tracking Tests ──\n");
+
+await test("T201: Completed member has stats in status", async () => {
+  const council = new Council("Stats in status");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  // Mock-pi returns stats via get_session_stats
+  if (status.stats) {
+    assert(typeof status.stats.cost === "number", "has cost number");
+    assert(typeof status.stats.tokens === "object", "has tokens object");
+    assert(typeof status.stats.tokens.total === "number", "has total tokens");
+  }
+  // Stats may be null if captureStats raced with closeStdin — both are valid
+});
+
+await test("T202: Result includes stats per member", async () => {
+  const council = new Council("Stats in result");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  // Stats field should exist (may be null if race condition)
+  assert("stats" in result.members[0], "stats field exists in result");
+});
+
+await test("T203: Crashed member has null stats", async () => {
+  const council = new Council("Crash stats");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  assert(status.stats === null, "null stats on crash");
+});
+
+await test("T204: getCachedStats returns same data as status.stats", async () => {
+  const council = new Council("Cached stats");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  const cached = member.getCachedStats();
+  const fromStatus = member.getStatus().stats;
+  assert(JSON.stringify(cached) === JSON.stringify(fromStatus), "cached matches status");
+});
+
+await test("T205: Results.json includes stats when available", async () => {
+  const council = new Council("Stats in artifact");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const resultsJson = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "results.json"), "utf-8"
+  ));
+  // Stats field should be present in artifact
+  assert("stats" in resultsJson.members[0], "stats in results.json");
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

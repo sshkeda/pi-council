@@ -2997,6 +2997,124 @@ await test("T150: Full 4-model council lifecycle test", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Config & CLI Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Config & CLI Tests ──\n");
+
+const { loadConfig, ensureConfig } = await import("../dist/src/core/config.js");
+
+await test("T151: loadConfig returns defaults when no config file exists", async () => {
+  const config = loadConfig();
+  assert(Array.isArray(config.models), "models is array");
+  assert(config.models.length === 4, "4 default models");
+  assert(config.models[0].id === "claude", "first is claude");
+});
+
+await test("T152: loadConfig reads custom models from config.json", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    models: [
+      { id: "custom1", provider: "test", model: "test-model-1" },
+      { id: "custom2", provider: "test", model: "test-model-2" },
+    ],
+  }));
+
+  const config = loadConfig();
+  assert(config.models.length === 2, "2 custom models");
+  assert(config.models[0].id === "custom1", "first is custom1");
+  assert(config.models[1].id === "custom2", "second is custom2");
+
+  // Clean up
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
+await test("T153: loadConfig handles corrupt config gracefully", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), "INVALID JSON{{{");
+
+  const config = loadConfig();
+  // Should fall back to defaults
+  assert(config.models.length === 4, "falls back to 4 defaults");
+
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
+await test("T154: loadConfig handles empty models array", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    models: [],
+  }));
+
+  const config = loadConfig();
+  // Empty models should fall back to defaults
+  assert(config.models.length === 4, "falls back to defaults on empty");
+
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
+await test("T155: loadConfig reads custom systemPrompt", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    systemPrompt: "You are a pirate.",
+  }));
+
+  const config = loadConfig();
+  assert(config.systemPrompt === "You are a pirate.", "custom prompt loaded");
+
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
+await test("T156: ensureConfig creates config file if missing", async () => {
+  const configPath = path.join(testHome, ".pi-council", "config.json");
+  if (fs.existsSync(configPath)) fs.rmSync(configPath);
+
+  ensureConfig();
+
+  assert(fs.existsSync(configPath), "config.json created");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  assert(Array.isArray(config.models), "has models");
+  assert(config.models.length === 4, "4 default models");
+});
+
+await test("T157: ensureConfig doesn't overwrite existing config", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  const configPath = path.join(configDir, "config.json");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify({ models: [{ id: "x", provider: "x", model: "x" }] }));
+
+  ensureConfig();
+
+  const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  assert(config.models.length === 1, "preserved existing config");
+  assert(config.models[0].id === "x", "preserved custom model");
+
+  fs.rmSync(configPath);
+});
+
+await test("T158: loadConfig filters out malformed models", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    models: [
+      { id: "good", provider: "test", model: "test-model" },
+      { id: "", provider: "test", model: "test-model" },  // empty id
+      { id: "missing-provider", model: "test-model" },     // no provider
+      { provider: "test", model: "test-model" },           // no id
+    ],
+  }));
+
+  const config = loadConfig();
+  assert(config.models.length === 1, "only 1 valid model");
+  assert(config.models[0].id === "good", "kept the good one");
+
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

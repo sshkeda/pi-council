@@ -1,5 +1,6 @@
 import { Council } from "../core/council.js";
-import { DEFAULT_MODELS, resolveModels } from "../core/profiles.js";
+import { loadConfig } from "../core/config.js";
+import { resolveModels } from "../core/profiles.js";
 import type { ModelSpec } from "../core/types.js";
 
 export interface AskOptions {
@@ -8,9 +9,10 @@ export interface AskOptions {
 }
 
 export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> {
-  let models: ModelSpec[] = DEFAULT_MODELS;
+  const config = loadConfig();
+  let models: ModelSpec[] = config.models;
   if (opts.models && opts.models.length > 0) {
-    models = resolveModels(DEFAULT_MODELS, opts.models);
+    models = resolveModels(config.models, opts.models);
     if (models.length === 0) {
       throw new Error("No matching models found.");
     }
@@ -34,7 +36,16 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
 
   process.stderr.write(`\n🏛️  Council (${models.length} models)\n\n`);
 
-  council.spawn({ models, cwd: opts.cwd });
+  // Support PI_COUNCIL_PI_BINARY env for testing with mock-pi
+  const spawnOpts: Record<string, unknown> = { models, cwd: opts.cwd };
+  if (config.systemPrompt) {
+    spawnOpts.systemPrompt = config.systemPrompt;
+  }
+  if (process.env.PI_COUNCIL_PI_BINARY) {
+    spawnOpts.piBinary = "node";
+    spawnOpts.piBinaryArgs = [process.env.PI_COUNCIL_PI_BINARY];
+  }
+  council.spawn(spawnOpts as any);
 
   const result = await council.waitForCompletion();
 

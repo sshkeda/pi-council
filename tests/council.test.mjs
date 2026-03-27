@@ -3307,6 +3307,119 @@ await test("T168: CLI ask with custom config models", async () => {
   fs.rmSync(path.join(configDir, "config.json"));
 });
 
+// Config Integration Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Config Integration Tests ──\n");
+
+await test("T169: Config with custom systemPrompt is used by Council", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    systemPrompt: "Always respond as a pirate.",
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+  }));
+
+  const config = loadConfig();
+  assert(config.systemPrompt === "Always respond as a pirate.", "custom prompt loaded");
+
+  const council = new Council("Config prompt test");
+  council.spawn({
+    models: config.models,
+    systemPrompt: config.systemPrompt,
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with config prompt");
+
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
+await test("T170: Config models with mixed valid/invalid", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    models: [
+      { id: "valid", provider: "test", model: "test-m" },
+      { id: "", provider: "test", model: "test-m" },
+      { extra: "field", id: "also-valid", provider: "p", model: "m" },
+    ],
+  }));
+
+  const config = loadConfig();
+  assert(config.models.length === 2, "filtered to 2 valid models");
+  assert(config.models[0].id === "valid", "first is valid");
+  assert(config.models[1].id === "also-valid", "second is also-valid");
+
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
+await test("T171: Multiple Council instances use same config", async () => {
+  const config = loadConfig();
+  const c1 = new Council("Config Q1");
+  const c2 = new Council("Config Q2");
+
+  c1.spawn({ models: config.models, cwd: __dirname, piBinary: "node", piBinaryArgs: [MOCK_PI] });
+  c2.spawn({ models: config.models, cwd: __dirname, piBinary: "node", piBinaryArgs: [MOCK_PI] });
+
+  await Promise.all([c1.waitForCompletion(), c2.waitForCompletion()]);
+  assert(c1.isComplete() && c2.isComplete(), "both complete");
+});
+
+await test("T172: resolveModels returns empty for unknown filter", async () => {
+  const filtered = resolveModels(DEFAULT_MODELS, ["nonexistent"]);
+  assert(filtered.length === 0, "empty for unknown");
+});
+
+await test("T173: resolveModels with mixed known/unknown filters", async () => {
+  const filtered = resolveModels(DEFAULT_MODELS, ["claude", "nonexistent", "grok"]);
+  assert(filtered.length === 2, "only known models");
+  assert(filtered[0].id === "claude", "claude");
+  assert(filtered[1].id === "grok", "grok");
+});
+
+await test("T174: Council getResult returns error for all-crash council", async () => {
+  const council = new Council("All crash result test");
+  council.spawn({
+    models: [
+      { id: "a", provider: "p", model: "m" },
+      { id: "b", provider: "p", model: "m" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members.every(m => m.state === "failed"), "all failed");
+  assert(result.members.every(m => m.error !== undefined), "all have errors");
+  assert(result.members.every(m => m.output === ""), "no output on crash");
+});
+
+await test("T175: Council preserves member order through full lifecycle", async () => {
+  const ids = ["alpha", "beta", "gamma", "delta"];
+  const council = new Council("Order preservation");
+  council.spawn({
+    models: ids.map(id => ({ id, provider: "p", model: `${id}-m` })),
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  const resultIds = result.members.map(m => m.id);
+  assert(JSON.stringify(resultIds) === JSON.stringify(ids), "order preserved in result");
+
+  const statusIds = council.getStatus().members.map(m => m.id);
+  assert(JSON.stringify(statusIds) === JSON.stringify(ids), "order preserved in status");
+
+  const memberIds = council.getMembers().map(m => m.id);
+  assert(JSON.stringify(memberIds) === JSON.stringify(ids), "order preserved in getMembers");
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

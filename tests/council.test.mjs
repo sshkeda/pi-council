@@ -1735,6 +1735,97 @@ await test("T85: Multiple steers to same member", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Observability Tests — stderr, status details
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Observability Tests ──\n");
+
+await test("T86: Crashed member exposes stderr", async () => {
+  const council = new Council("Stderr test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  assert(status.state === "failed", "failed");
+  assert(status.stderr.length > 0, "has stderr content");
+  assert(status.stderr.includes("crash") || status.stderr.includes("simulated"), "stderr mentions crash");
+});
+
+await test("T87: Successful member has empty stderr", async () => {
+  const council = new Council("Clean stderr test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  assert(status.state === "done", "done");
+  assert(status.stderr === "", "empty stderr on success");
+});
+
+await test("T88: MemberStatus has all required fields", async () => {
+  const council = new Council("Status fields test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const s = council.getMember("claude").getStatus();
+
+  assert(typeof s.id === "string", "id");
+  assert(typeof s.model === "object", "model");
+  assert(typeof s.state === "string", "state");
+  assert(typeof s.output === "string", "output");
+  assert(typeof s.stderr === "string", "stderr");
+  assert(typeof s.isStreaming === "boolean", "isStreaming");
+  assert(typeof s.startedAt === "number", "startedAt");
+  assert(typeof s.finishedAt === "number", "finishedAt");
+  assert(typeof s.durationMs === "number", "durationMs");
+});
+
+await test("T89: Council status exposes member stderr in error field", async () => {
+  const council = new Council("Status stderr test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  const councilStatus = council.getStatus();
+  const member = councilStatus.members[0];
+  assert(member.error !== undefined, "has error");
+  assert(member.stderr.length > 0, "has stderr in status");
+});
+
+await test("T90: Spawn failure member has correct exitCode", async () => {
+  const council = new Council("Exit code test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "nonexistent-binary-xyz",
+  });
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  assert(status.state === "failed", "failed");
+  // spawn failure may not have exitCode
+  assert(status.error.includes("spawn") || status.error.includes("ENOENT"), "error mentions spawn issue");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

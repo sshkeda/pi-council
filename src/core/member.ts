@@ -30,6 +30,7 @@ export class CouncilMember {
   private child: ChildProcess | null = null;
   private state: MemberState = "spawning";
   private output = "";
+  private stderrOutput = "";
   private error: string | undefined;
   private isStreaming = false;
   private startedAt: number;
@@ -89,7 +90,6 @@ export class CouncilMember {
     });
 
     // Attach error handler IMMEDIATELY to prevent unhandled error crash
-    let stderr = "";
     this.child.on("error", (err) => {
       if (this.state === "running" || this.state === "spawning") {
         this.state = "failed";
@@ -116,9 +116,9 @@ export class CouncilMember {
       this.processBuffer();
     });
 
-    // Collect stderr for error reporting
+    // Collect stderr for error reporting and observability
     this.child.stderr!.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      this.stderrOutput += chunk.toString();
     });
 
     this.child.on("close", (code) => {
@@ -131,7 +131,7 @@ export class CouncilMember {
           this.emit({ type: "member_done", memberId: this.id, output: this.output });
         } else {
           this.state = "failed";
-          this.error = stderr.trim() || `Process exited with code ${code}`;
+          this.error = this.stderrOutput.trim() || `Process exited with code ${code}`;
           this.finishedAt = Date.now();
           this.emit({ type: "member_failed", memberId: this.id, error: this.error });
         }
@@ -208,6 +208,7 @@ export class CouncilMember {
       state: this.state,
       output: this.output,
       error: this.error,
+      stderr: this.stderrOutput,
       isStreaming: this.isStreaming,
       startedAt: this.startedAt,
       finishedAt: this.finishedAt,

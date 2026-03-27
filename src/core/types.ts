@@ -45,6 +45,8 @@ export interface MemberStatus {
   output: string;
   /** Error message if failed */
   error?: string;
+  /** Accumulated stderr output */
+  stderr: string;
   /** Whether the member is currently streaming (processing a prompt) */
   isStreaming: boolean;
   /** Start time */

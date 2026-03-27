@@ -1888,6 +1888,128 @@ await test("T93: getSessionStats returns null on spawn failure", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Orchestrator Pattern Tests — real-world usage patterns
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Orchestrator Pattern Tests ──\n");
+
+await test("T94: Spawn, do foreground work, then get results", async () => {
+  // This is the core orchestrator pattern
+  const council = new Council("Background council");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  // Simulate foreground work
+  let foregroundComplete = false;
+  await new Promise(r => setTimeout(r, 50));
+  foregroundComplete = true;
+
+  // Now get results
+  const result = await council.waitForCompletion();
+  assert(foregroundComplete, "foreground completed first");
+  assert(result.members.length === 2, "2 results");
+  assert(result.members.every(m => m.output.length > 0), "all have output");
+});
+
+await test("T95: Registry getLatest returns most recent council", async () => {
+  const registry = new CouncilRegistry();
+  const c1 = new Council("First");
+  const c2 = new Council("Second");
+  const c3 = new Council("Third");
+  registry.add(c1);
+  registry.add(c2);
+  registry.add(c3);
+
+  assert(registry.getLatest() === c3, "latest is c3");
+  registry.remove(c3.runId);
+  assert(registry.getLatest() === c2, "latest is c2 after remove");
+});
+
+await test("T96: Council with single model still works", async () => {
+  const council = new Council("Single model");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members.length === 1, "1 member");
+  assert(result.members[0].state === "done", "done");
+});
+
+await test("T97: Council events include correct memberId", async () => {
+  const events = [];
+  const council = new Council("Event memberId test");
+  council.on(e => events.push(e));
+
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  const startEvents = events.filter(e => e.type === "member_started");
+  const memberIds = startEvents.map(e => e.memberId);
+  assert(memberIds.includes("claude"), "has claude start event");
+  assert(memberIds.includes("gpt"), "has gpt start event");
+
+  const doneEvents = events.filter(e => e.type === "member_done");
+  const doneIds = doneEvents.map(e => e.memberId);
+  assert(doneIds.includes("claude"), "has claude done event");
+  assert(doneIds.includes("gpt"), "has gpt done event");
+});
+
+await test("T98: Council complete event includes full result", async () => {
+  const events = [];
+  const council = new Council("Complete event test");
+  council.on(e => events.push(e));
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  const completeEvent = events.find(e => e.type === "council_complete");
+  assert(completeEvent !== undefined, "has complete event");
+  assert(completeEvent.result.runId === council.runId, "correct runId");
+  assert(completeEvent.result.members.length === 1, "has members");
+  assert(completeEvent.result.prompt === "Complete event test", "correct prompt");
+});
+
+await test("T99: resolveModels is case-insensitive", async () => {
+  const filtered = resolveModels(DEFAULT_MODELS, ["CLAUDE", "Grok"]);
+  assert(filtered.length === 2, "found 2");
+  assert(filtered[0].id === "claude", "claude");
+  assert(filtered[1].id === "grok", "grok");
+});
+
+await test("T100: Council run directory is unique per council", async () => {
+  const c1 = new Council("Dir test 1");
+  const c2 = new Council("Dir test 2");
+  assert(c1.getRunDir() !== c2.getRunDir(), "different run dirs");
+  assert(c1.getRunDir().includes(c1.runId), "dir includes runId");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

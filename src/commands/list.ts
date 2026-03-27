@@ -27,6 +27,7 @@ export function list(): void {
     let prompt = "?";
     let status = "unknown";
     let models = "";
+    let duration = "";
 
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
@@ -36,10 +37,15 @@ export function list(): void {
 
     if (fs.existsSync(resultsPath)) {
       status = "✅ done";
+      try {
+        const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+        const maxDur = Math.max(...(results.members ?? []).map((m: any) => m.durationMs ?? 0));
+        if (maxDur > 0) duration = ` (${(maxDur / 1000).toFixed(1)}s)`;
+      } catch {}
     } else {
       status = "🔄 running";
     }
 
-    process.stdout.write(`${dir}  ${status}  [${models}]  "${prompt}"\n`);
+    process.stdout.write(`${dir}  ${status}${duration}  [${models}]  "${prompt}"\n`);
   }
 }

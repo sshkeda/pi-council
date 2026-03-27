@@ -4122,6 +4122,59 @@ await test("T210: CLI without --json outputs markdown", async () => {
   }
 });
 
+// CLI --json for status Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── CLI --json status Tests ──\n");
+
+await test("T211: CLI status --json outputs valid JSON", async () => {
+  // First create a run
+  try {
+    execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude", "Status json test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+  } catch {}
+
+  const result = execFileSync("node", [CLI_ENTRY, "status", "--json"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+
+  const parsed = JSON.parse(result.trim());
+  assert(parsed.status === "complete", "status is complete");
+  assert(parsed.runId !== undefined, "has runId");
+  assert(Array.isArray(parsed.members), "has members");
+});
+
+await test("T212: CLI status without --json outputs human text", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "status"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+
+  let isJson = false;
+  try { JSON.parse(result.trim()); isJson = true; } catch {}
+  assert(!isJson, "not JSON");
+  assert(result.includes("Run:"), "has Run: header");
+  assert(result.includes("Status:"), "has Status: header");
+});
+
+await test("T213: CLI help mentions --json flag", async () => {
+  // Help goes to stderr, use spawnSync to capture both
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync("node", [CLI_ENTRY, "--help"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const allOutput = (result.stdout || "") + (result.stderr || "");
+  assert(allOutput.includes("--json"), "help mentions --json");
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

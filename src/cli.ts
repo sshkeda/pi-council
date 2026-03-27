@@ -91,7 +91,7 @@ async function main(): Promise<void> {
       spawn(prompt, { models, cwd });
       break;
     case "status":
-      status(runId);
+      status(runId, json);
       break;
     case "results":
       await results(runId);

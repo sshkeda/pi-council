@@ -6,7 +6,7 @@ function getRunsDir(): string {
   return path.join(os.homedir(), ".pi-council", "runs");
 }
 
-export function status(runId?: string): void {
+export function status(runId?: string, json = false): void {
   const targetId = runId ?? getLatestRunId();
   if (!targetId) {
     process.stderr.write("No runs found.\n");
@@ -26,6 +26,12 @@ export function status(runId?: string): void {
   if (fs.existsSync(resultsPath)) {
     try {
       const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+
+      if (json) {
+        process.stdout.write(JSON.stringify({ ...results, status: "complete" }, null, 2) + "\n");
+        return;
+      }
+
       const totalDuration = Math.max(...(results.members ?? []).map((m: any) => m.durationMs ?? 0));
 
       process.stdout.write(`Run: ${results.runId}\n`);

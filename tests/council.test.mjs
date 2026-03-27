@@ -967,6 +967,167 @@ await test("T55: Member output events fire in order", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Live Follow-up Tests — steer/abort during active processing
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Live Follow-up Tests ──\n");
+
+await test("T56: Mock-pi accepts follow_up command", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  // Send follow_up (will be queued)
+  child.stdin.write(JSON.stringify({ type: "follow_up", id: "fu1", message: "additional context" }) + "\n");
+  await new Promise(r => setTimeout(r, 200));
+
+  const resp = events.find(e => e.type === "response" && e.id === "fu1");
+  assert(resp !== undefined, "got follow_up response");
+  assert(resp.success === true, "follow_up succeeded");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T57: Mock-pi accepts steer during streaming", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, MOCK_PI_DELAY_MS: "200", MOCK_PI_TOOL_CALLS: "true" },
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  // Start a prompt
+  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "initial question" }) + "\n");
+
+  // Send steer while processing
+  await new Promise(r => setTimeout(r, 50));
+  child.stdin.write(JSON.stringify({ type: "steer", id: "s1", message: "also consider X" }) + "\n");
+
+  // Wait for completion
+  await new Promise(r => setTimeout(r, 1000));
+
+  const steerResp = events.find(e => e.type === "response" && e.id === "s1");
+  assert(steerResp !== undefined, "got steer response");
+  assert(steerResp.success === true, "steer succeeded");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T58: Mock-pi handles unknown command gracefully", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "nonexistent_command", id: "x1" }) + "\n");
+  await new Promise(r => setTimeout(r, 200));
+
+  const resp = events.find(e => e.type === "response" && e.id === "x1");
+  assert(resp !== undefined, "got error response");
+  assert(resp.success === false, "command failed");
+  assert(resp.error.includes("Unknown"), "error mentions unknown");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T59: Council with 2 models produces different outputs", async () => {
+  const council = new Council("Compare models test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "grok", provider: "xai", model: "grok-test" },
+    ],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const claudeOut = council.readStream("claude");
+  const grokOut = council.readStream("grok");
+
+  // Mock-pi generates different responses based on provider
+  assert(claudeOut !== grokOut, "outputs should differ");
+  assert(claudeOut.includes("Claude"), "claude output mentions Claude");
+  assert(grokOut.includes("direct take") || grokOut.includes("grok") || grokOut.includes("wrong"), "grok has distinct response");
+});
+
+await test("T60: Mock-pi get_session_stats returns cost data", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "get_session_stats", id: "st1" }) + "\n");
+  await new Promise(r => setTimeout(r, 200));
+
+  const resp = events.find(e => e.type === "response" && e.id === "st1");
+  assert(resp !== undefined, "got stats response");
+  assert(resp.success === true, "stats succeeded");
+  assert(resp.data.cost !== undefined, "has cost");
+  assert(resp.data.tokens !== undefined, "has tokens");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

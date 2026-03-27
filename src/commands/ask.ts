@@ -6,6 +6,7 @@ import type { ModelSpec } from "../core/types.js";
 export interface AskOptions {
   models?: string[];
   cwd?: string;
+  json?: boolean;
 }
 
 export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> {
@@ -47,13 +48,26 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
   }
   council.spawn(spawnOpts as any);
 
-  const result = await council.waitForCompletion();
+  // Handle Ctrl+C — cancel council and exit cleanly
+  const sigintHandler = () => {
+    council.cancel();
+    process.stderr.write("\n\nCancelled.\n");
+    process.exitCode = 130;
+  };
+  process.on("SIGINT", sigintHandler);
 
-  process.stderr.write(`\n`);
-  for (const member of result.members) {
-    const icon = member.state === "done" ? "✅" : "❌";
-    const duration = member.durationMs ? ` (${(member.durationMs / 1000).toFixed(1)}s)` : "";
-    process.stdout.write(`## ${icon} ${member.id.toUpperCase()} (${member.model.model})${duration}\n\n`);
-    process.stdout.write(`${member.output || member.error || "(no output)"}\n\n---\n\n`);
+  const result = await council.waitForCompletion();
+  process.off("SIGINT", sigintHandler);
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } else {
+    process.stderr.write(`\n`);
+    for (const member of result.members) {
+      const icon = member.state === "done" ? "✅" : "❌";
+      const duration = member.durationMs ? ` (${(member.durationMs / 1000).toFixed(1)}s)` : "";
+      process.stdout.write(`## ${icon} ${member.id.toUpperCase()} (${member.model.model})${duration}\n\n`);
+      process.stdout.write(`${member.output || member.error || "(no output)"}\n\n---\n\n`);
+    }
   }
 }

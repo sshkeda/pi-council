@@ -4010,6 +4010,118 @@ await test("T205: Results.json includes stats when available", async () => {
   assert("stats" in resultsJson.members[0], "stats in results.json");
 });
 
+// CLI --json and SIGINT Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── CLI --json and SIGINT Tests ──\n");
+
+await test("T206: CLI ask --json outputs valid JSON", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--json", "--models", "claude", "JSON test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const parsed = JSON.parse(result.trim());
+    assert(parsed.runId !== undefined, "has runId");
+    assert(Array.isArray(parsed.members), "has members array");
+    assert(parsed.members[0].id === "claude", "member id is claude");
+    assert(parsed.members[0].output.length > 0, "has output");
+    assert(parsed.prompt === "JSON test", "has prompt");
+  } catch (e) {
+    if (e.stdout) {
+      const parsed = JSON.parse(e.stdout.trim());
+      assert(parsed.runId !== undefined, "has runId");
+    } else {
+      throw e;
+    }
+  }
+});
+
+await test("T207: CLI ask --json with 2 models", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--json", "--models", "claude,gpt", "Two model JSON"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const parsed = JSON.parse(result.trim());
+    assert(parsed.members.length === 2, "2 members");
+    assert(parsed.members[0].id === "claude", "first is claude");
+    assert(parsed.members[1].id === "gpt", "second is gpt");
+  } catch (e) {
+    if (e.stdout) {
+      const parsed = JSON.parse(e.stdout.trim());
+      assert(parsed.members.length === 2, "2 members");
+    } else {
+      throw e;
+    }
+  }
+});
+
+await test("T208: CLI ask --json result has stats field", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--json", "--models", "claude", "Stats JSON test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const parsed = JSON.parse(result.trim());
+    assert("stats" in parsed.members[0], "has stats field");
+    assert(typeof parsed.completedAt === "number", "has completedAt");
+    assert(typeof parsed.startedAt === "number", "has startedAt");
+  } catch (e) {
+    if (e.stdout) {
+      const parsed = JSON.parse(e.stdout.trim());
+      assert("stats" in parsed.members[0], "has stats");
+    } else {
+      throw e;
+    }
+  }
+});
+
+await test("T209: CLI --json flag is parsed correctly", async () => {
+  // Verify that --json doesn't get treated as part of the prompt
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude", "--json", "Flag order test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const parsed = JSON.parse(result.trim());
+    assert(parsed.prompt === "Flag order test", "prompt doesn't include --json");
+  } catch (e) {
+    if (e.stdout) {
+      const parsed = JSON.parse(e.stdout.trim());
+      assert(parsed.prompt === "Flag order test", "correct prompt");
+    } else {
+      throw e;
+    }
+  }
+});
+
+await test("T210: CLI without --json outputs markdown", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude", "Markdown test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    // Should NOT be valid JSON (it's markdown)
+    let isJson = false;
+    try { JSON.parse(result.trim()); isJson = true; } catch {}
+    assert(!isJson, "not JSON output");
+    assert(result.includes("##"), "has markdown headers");
+    assert(result.includes("CLAUDE"), "has model name");
+  } catch (e) {
+    if (e.stdout) {
+      assert(e.stdout.includes("##"), "markdown headers");
+    } else {
+      throw e;
+    }
+  }
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

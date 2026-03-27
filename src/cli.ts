@@ -14,7 +14,7 @@ function parseArgs(argv: string[]): {
   runId?: string;
   models?: string[];
   cwd?: string;
-  profile?: string;
+  json?: boolean;
   prompt: string;
 } {
   const args = argv.slice(2);
@@ -22,6 +22,7 @@ function parseArgs(argv: string[]): {
 
   let models: string[] | undefined;
   let cwd: string | undefined;
+  let json = false;
   let runId: string | undefined;
   const rest: string[] = [];
 
@@ -33,6 +34,9 @@ function parseArgs(argv: string[]): {
     } else if (args[i] === "--cwd" && i + 1 < args.length) {
       cwd = args[i + 1];
       i += 2;
+    } else if (args[i] === "--json") {
+      json = true;
+      i++;
     } else {
       rest.push(args[i]);
       i++;
@@ -44,7 +48,7 @@ function parseArgs(argv: string[]): {
     runId = rest[0];
   }
 
-  return { command, runId, models, cwd, prompt };
+  return { command, runId, models, cwd, json, prompt };
 }
 
 function printHelp(): void {
@@ -63,6 +67,7 @@ Commands:
 
 Flags:
   --models claude,gpt,grok    Select which models to run (default: all)
+  --json                       Output structured JSON instead of markdown
   --cwd /path                  Working directory for agents
 
 Examples:
@@ -74,12 +79,12 @@ Examples:
 }
 
 async function main(): Promise<void> {
-  const { command, runId, models, cwd, prompt } = parseArgs(process.argv);
+  const { command, runId, models, cwd, json, prompt } = parseArgs(process.argv);
 
   switch (command) {
     case "ask":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      await ask(prompt, { models, cwd });
+      await ask(prompt, { models, cwd, json });
       break;
     case "spawn":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
@@ -120,7 +125,7 @@ async function main(): Promise<void> {
       // Treat everything as an implicit ask
       const fullPrompt = [command, prompt].filter(Boolean).join(" ");
       if (fullPrompt.trim()) {
-        await ask(fullPrompt, { models, cwd });
+        await ask(fullPrompt, { models, cwd, json });
       } else {
         printHelp();
       }

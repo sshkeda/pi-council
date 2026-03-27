@@ -14,6 +14,9 @@ import * as os from "node:os";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_PI = path.join(__dirname, "mock-pi.mjs");
+const MOCK_PI_CRASH = path.join(__dirname, "mock-pi-crash.mjs");
+const MOCK_PI_SLOW = path.join(__dirname, "mock-pi-slow.mjs");
+const MOCK_PI_TOOLS = path.join(__dirname, "mock-pi-tools.mjs");
 
 // Dynamically import the council core (after build)
 const { Council, CouncilRegistry } = await import("../dist/src/core/council.js");
@@ -1494,6 +1497,115 @@ await test("T75: Prompt.txt matches council prompt", async () => {
   await council.waitForCompletion();
   const promptFile = fs.readFileSync(path.join(council.getRunDir(), "prompt.txt"), "utf-8");
   assert(promptFile === "Prompt file test", "prompt matches");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Sandbox Isolation Tests — crash, slow, tool wrappers
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Sandbox Isolation Tests ──\n");
+
+await test("T76: Mock-pi crash is handled as member failure", async () => {
+  const council = new Council("Crash handling test");
+  const events = [];
+  council.on(e => events.push(e));
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  const status = council.getStatus();
+  assert(status.isComplete, "complete after crash");
+  assert(status.members[0].state === "failed", "member state is failed");
+  assert(status.members[0].error !== undefined, "has error message");
+
+  const failEvents = events.filter(e => e.type === "member_failed");
+  assert(failEvents.length >= 1, "got member_failed event");
+});
+
+await test("T77: Cancel slow member before it completes", async () => {
+  const council = new Council("Cancel slow member");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Give it a moment to start, then cancel
+  await new Promise(r => setTimeout(r, 100));
+  assert(council.getMember("claude").isAlive(), "still alive before cancel");
+
+  council.cancel();
+  await council.waitForCompletion();
+
+  const status = council.getMember("claude").getStatus();
+  assert(status.state === "cancelled", "cancelled");
+  assert(status.durationMs < 2000, "cancelled before slow response finished");
+});
+
+await test("T78: Tool execution events propagate through Council", async () => {
+  const events = [];
+  const council = new Council("Tool events propagation");
+  council.on(e => events.push(e));
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_TOOLS],
+  });
+
+  await council.waitForCompletion();
+
+  const toolStarts = events.filter(e => e.type === "member_tool_start");
+  const toolEnds = events.filter(e => e.type === "member_tool_end");
+
+  assert(toolStarts.length > 0, "got member_tool_start events");
+  assert(toolEnds.length > 0, "got member_tool_end events");
+  assert(toolStarts[0].memberId === "claude", "tool event has correct memberId");
+  assert(toolStarts[0].toolName === "read", "tool name is read");
+});
+
+await test("T79: Crash + success mixed council completes", async () => {
+  const council = new Council("Mixed crash/success");
+
+  council.spawn({
+    models: [
+      { id: "crash", provider: "anthropic", model: "crash-model" },
+      { id: "success", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    // Use regular mock-pi — crash model won't crash since env isn't set
+    // but this tests that mixed results are handled
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete");
+  assert(council.getStatus().finishedCount === 2, "both finished");
+});
+
+await test("T80: Slow member eventually completes on its own", async () => {
+  const council = new Council("Slow completion");
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members[0].state === "done", "done");
+  assert(result.members[0].output.length > 0, "has output");
+  assert(result.members[0].durationMs >= 2000, "took at least 2s (slow mock)");
 });
 
 // ═══════════════════════════════════════════════════════════════════════

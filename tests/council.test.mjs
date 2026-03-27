@@ -2298,6 +2298,100 @@ await test("T115: Double cancel is safe", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// API Surface Tests — verify public methods behave correctly
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── API Surface Tests ──\n");
+
+await test("T116: Council.getMembers returns copy of array", async () => {
+  const council = new Council("Array copy test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const members1 = council.getMembers();
+  const members2 = council.getMembers();
+  assert(members1 !== members2, "different array references");
+  assert(members1.length === members2.length, "same length");
+  assert(members1[0] === members2[0], "same member objects");
+
+  await council.waitForCompletion();
+});
+
+await test("T117: Council.isComplete is false during processing", async () => {
+  const council = new Council("isComplete timing");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Check immediately after spawn — should not be complete
+  assert(!council.isComplete(), "not complete immediately");
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete after wait");
+});
+
+await test("T118: Member.finish is idempotent", async () => {
+  const council = new Council("Finish idempotent");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  member.finish();
+  member.finish(); // should not throw
+  member.finish(); // should not throw
+});
+
+await test("T119: Council.waitForCompletion resolves immediately if already complete", async () => {
+  const council = new Council("Double wait");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const start = Date.now();
+  await council.waitForCompletion(); // should resolve instantly
+  assert(Date.now() - start < 100, "second wait resolved quickly");
+});
+
+await test("T120: Council.on returns working unsubscribe function", async () => {
+  const council = new Council("Unsub test");
+  let count = 0;
+  const unsub = council.on(() => count++);
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  // Unsubscribe partway through
+  await new Promise(r => setTimeout(r, 50));
+  const countAtUnsub = count;
+  unsub();
+
+  await council.waitForCompletion();
+  // After unsub, count should not have increased much
+  // (there might be a small race, so allow +1)
+  assert(count <= countAtUnsub + 1, "no events after unsub");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

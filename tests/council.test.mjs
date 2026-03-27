@@ -2106,6 +2106,112 @@ await test("T105: Council getRunDir exists and is writable", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Hurry-up Pattern Tests — orchestrator tells members to wrap up
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Hurry-up Pattern Tests ──\n");
+
+await test("T106: Hurry-up steer to all slow members", async () => {
+  const council = new Council("Hurry up steer");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 100));
+
+  // Orchestrator says "hurry up" to all
+  await council.followUp({
+    type: "steer",
+    message: "Please wrap up quickly and provide your final answer.",
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed after hurry-up");
+  assert(council.getMembers().every(m => m.getOutput().length > 0), "all produced output");
+});
+
+await test("T107: Hurry-up abort replaces with summary request", async () => {
+  const council = new Council("Hurry up abort");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 100));
+
+  // Orchestrator aborts — "just give me a one-line summary"
+  await council.followUp({
+    type: "abort",
+    message: "",
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed after abort hurry-up");
+});
+
+await test("T108: FollowUp type validation", async () => {
+  const council = new Council("Type validation");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Both types should work without error (even post-completion)
+  await council.followUp({ type: "steer", message: "test" });
+  await council.followUp({ type: "abort", message: "test" });
+});
+
+await test("T109: Council output events contain text deltas", async () => {
+  const outputEvents = [];
+  const council = new Council("Delta test");
+  council.on(e => {
+    if (e.type === "member_output") outputEvents.push(e);
+  });
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(outputEvents.length > 0, "got output events");
+  assert(outputEvents.every(e => typeof e.delta === "string"), "all have delta string");
+  assert(outputEvents.every(e => e.delta.length > 0), "all deltas non-empty");
+  assert(outputEvents.every(e => e.memberId === "claude"), "all from claude");
+});
+
+await test("T110: Council with 4 models all produce unique outputs", async () => {
+  const council = new Council("4 model uniqueness");
+  council.spawn({
+    models: DEFAULT_MODELS.map(m => ({ ...m, model: m.id + "-test" })),
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  const outputs = result.members.map(m => m.output);
+
+  // All 4 should be unique
+  const unique = new Set(outputs);
+  assert(unique.size === 4, `all 4 outputs unique (got ${unique.size})`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

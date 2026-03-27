@@ -118,6 +118,7 @@ export default function (pi: ExtensionAPI) {
 
           const costLine = totalCost > 0 ? `\n- total cost: $${totalCost.toFixed(4)}` : "";
           const tokensLine = totalTokens > 0 ? `\n- total tokens: ${totalTokens}` : "";
+          const ttfrLine = result.ttfrMs ? `\n- time to first result: ${(result.ttfrMs / 1000).toFixed(1)}s` : "";
 
           const header = [
             `🏛️ All ${result.members.length} council members responded for: "${result.prompt}"`,
@@ -126,7 +127,7 @@ export default function (pi: ExtensionAPI) {
             `- total: ${result.members.length}`,
             `- succeeded: ${succeeded}`,
             `- failed: ${failedCount}`,
-            `- total duration: ${(totalDuration / 1000).toFixed(1)}s${costLine}${tokensLine}`,
+            `- total duration: ${(totalDuration / 1000).toFixed(1)}s${ttfrLine}${costLine}${tokensLine}`,
           ].join("\n");
 
           const summary = result.members

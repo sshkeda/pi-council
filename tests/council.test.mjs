@@ -4175,6 +4175,81 @@ await test("T213: CLI help mentions --json flag", async () => {
   assert(allOutput.includes("--json"), "help mentions --json");
 });
 
+// TTFR Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── TTFR Tests ──\n");
+
+await test("T214: Council result includes ttfrMs", async () => {
+  const council = new Council("TTFR test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(typeof result.ttfrMs === "number", "ttfrMs is number");
+  assert(result.ttfrMs > 0, "ttfrMs is positive");
+  assert(result.ttfrMs <= result.completedAt - result.startedAt, "ttfr <= total duration");
+});
+
+await test("T215: TTFR in results.json artifact", async () => {
+  const council = new Council("TTFR artifact test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const resultsJson = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "results.json"), "utf-8"
+  ));
+  assert(typeof resultsJson.ttfrMs === "number", "ttfrMs in artifact");
+  assert(resultsJson.ttfrMs > 0, "positive");
+});
+
+await test("T216: TTFR in --json CLI output", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--json", "--models", "claude,gpt", "TTFR CLI test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    const parsed = JSON.parse(result.trim());
+    assert(typeof parsed.ttfrMs === "number", "ttfrMs in JSON output");
+    assert(parsed.ttfrMs > 0, "positive ttfr");
+  } catch (e) {
+    if (e.stdout) {
+      const parsed = JSON.parse(e.stdout.trim());
+      assert(typeof parsed.ttfrMs === "number", "ttfrMs");
+    } else {
+      throw e;
+    }
+  }
+});
+
+await test("T217: Single model TTFR equals total duration", async () => {
+  const council = new Council("Single TTFR");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  // With 1 model, TTFR should be very close to total duration
+  const totalMs = result.completedAt - result.startedAt;
+  assert(Math.abs(result.ttfrMs - totalMs) < 100, "TTFR ≈ total for single model");
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

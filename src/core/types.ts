@@ -90,6 +90,8 @@ export interface CouncilResult {
   prompt: string;
   startedAt: number;
   completedAt: number;
+  /** Time to first result in ms (when the first member finished) */
+  ttfrMs?: number;
   members: {
     id: string;
     model: ModelSpec;

@@ -33,6 +33,7 @@ export class Council {
   private members: CouncilMember[] = [];
   private listeners: EventListener[] = [];
   private runDir: string;
+  private ttfrMs: number | undefined;
 
   constructor(prompt: string, runId?: string) {
     this.runId = runId ?? generateRunId();
@@ -94,6 +95,14 @@ export class Council {
       // Forward member events to council listeners
       member.on((event) => {
         this.emit(event);
+
+        // Track time-to-first-result
+        if (
+          (event.type === "member_done" || event.type === "member_failed") &&
+          this.ttfrMs === undefined
+        ) {
+          this.ttfrMs = Date.now() - this.startedAt;
+        }
 
         // Check if council is complete after each member event
         if (
@@ -220,6 +229,7 @@ export class Council {
       prompt: this.prompt,
       startedAt: this.startedAt,
       completedAt: Date.now(),
+      ttfrMs: this.ttfrMs,
       members: this.members.map((m) => {
         const status = m.getStatus();
         return {

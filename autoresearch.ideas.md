@@ -1,22 +1,17 @@
 # pi-council v2 Improvement Ideas
 
-## Done ✅ (200 tests)
-- RPC-based members with bidirectional communication
-- Follow-ups: steer + abort (live, during processing, targeted)
-- Cancel individual member or entire council
-- Full observability: status, stream, stderr, events, cost/tokens
-- Docker sandbox (--network none, tmpfs, non-root)
-- Streaming partial responses verified
-- Per-model system prompt overrides
-- Config file for custom models + systemPrompt
-- CLI E2E tests (all commands)
-- Extension integration tests (mock ExtensionAPI)
-- Ground truth artifacts (results.json)
+## Done ✅ (213 tests)
+- RPC-based members, steer/abort follow-ups, cancel, observability
+- Docker sandbox, streaming partial responses, per-model prompts
+- Config file, CLI E2E, extension integration tests
+- Cost tracking (get_session_stats), ground truth artifacts
+- --json flag for ask and status, SIGINT handler
 
 ## Next up
-- **Cost aggregation in results** — query get_session_stats before closing stdin, include in results.json
-- **CLI `ask --json`** — output structured JSON instead of markdown for script consumption
-- **Extension noninteractive path with mock-pi** — test spawn_council blocking mode end-to-end
+- **list --json** — structured JSON for list command
+- **results --json** — structured JSON for results command
+- **TTFR tracking** — time-to-first-result in CouncilResult
+- **Council.toJSON()** — serializable snapshot for debugging
 
-## Future  
+## Future
 - **2-model escalation** — start with 2, add 3rd if they disagree

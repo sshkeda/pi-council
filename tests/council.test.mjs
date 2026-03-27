@@ -4250,6 +4250,50 @@ await test("T217: Single model TTFR equals total duration", async () => {
   assert(Math.abs(result.ttfrMs - totalMs) < 100, "TTFR ≈ total for single model");
 });
 
+// list --json Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── list --json Tests ──\n");
+
+await test("T218: CLI list --json outputs array", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "list", "--json"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const parsed = JSON.parse(result.trim());
+  assert(Array.isArray(parsed), "is array");
+  assert(parsed.length > 0, "has runs from previous tests");
+});
+
+await test("T219: list --json entries have required fields", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "list", "--json"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const runs = JSON.parse(result.trim());
+  const run = runs[0];
+  assert(typeof run.runId === "string", "has runId");
+  assert(run.status === "complete" || run.status === "running", "has valid status");
+  assert(typeof run.prompt === "string", "has prompt");
+  assert(Array.isArray(run.models), "has models array");
+});
+
+await test("T220: list --json with empty runs dir", async () => {
+  // Use a fresh temp home with no runs
+  const freshHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-council-fresh-"));
+  const result = execFileSync("node", [CLI_ENTRY, "list", "--json"], {
+    env: { ...process.env, HOME: freshHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const parsed = JSON.parse(result.trim());
+  assert(Array.isArray(parsed), "is array");
+  assert(parsed.length === 0, "empty array");
+  fs.rmSync(freshHome, { recursive: true, force: true });
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

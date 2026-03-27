@@ -106,7 +106,7 @@ async function main(): Promise<void> {
       cleanup(runId);
       break;
     case "list":
-      list();
+      list(json);
       break;
     case "help":
     case "--help":

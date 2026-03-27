@@ -1365,6 +1365,141 @@ await test("T70: Council getResult completedAt is after startedAt", async () => 
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Custom Output & Multi-member Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Custom Output & Multi-member Tests ──\n");
+
+await test("T71: Mock-pi MOCK_PI_OUTPUT env var overrides response", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, MOCK_PI_OUTPUT: "CUSTOM_RESPONSE_XYZ" },
+  });
+
+  let fullOutput = "";
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) {
+        try {
+          const e = JSON.parse(line);
+          if (e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta") {
+            fullOutput += e.assistantMessageEvent.delta;
+          }
+        } catch {}
+      }
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test" }) + "\n");
+  await new Promise(r => setTimeout(r, 500));
+
+  assert(fullOutput === "CUSTOM_RESPONSE_XYZ", `got custom output: "${fullOutput}"`);
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T72: Three model council all produce different outputs", async () => {
+  const council = new Council("Diversity test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "grok", provider: "xai", model: "grok-test" },
+    ],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  const outputs = result.members.map(m => m.output);
+  
+  // All outputs should be different
+  assert(outputs[0] !== outputs[1], "claude != gpt");
+  assert(outputs[1] !== outputs[2], "gpt != grok");
+  assert(outputs[0] !== outputs[2], "claude != grok");
+});
+
+await test("T73: Council result JSON has all required fields", async () => {
+  const council = new Council("JSON schema test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const resultsJson = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "results.json"), "utf-8"
+  ));
+
+  assert(typeof resultsJson.runId === "string", "runId");
+  assert(typeof resultsJson.prompt === "string", "prompt");
+  assert(typeof resultsJson.startedAt === "number", "startedAt");
+  assert(typeof resultsJson.completedAt === "number", "completedAt");
+  assert(Array.isArray(resultsJson.members), "members");
+
+  const m = resultsJson.members[0];
+  assert(typeof m.id === "string", "member.id");
+  assert(typeof m.model === "object", "member.model");
+  assert(typeof m.state === "string", "member.state");
+  assert(typeof m.output === "string", "member.output");
+  assert(typeof m.durationMs === "number", "member.durationMs");
+});
+
+await test("T74: Meta.json has all required fields", async () => {
+  const council = new Council("Meta schema test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const meta = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "meta.json"), "utf-8"
+  ));
+
+  assert(meta.runId === council.runId, "runId matches");
+  assert(meta.prompt === "Meta schema test", "prompt");
+  assert(typeof meta.startedAt === "number", "startedAt");
+  assert(Array.isArray(meta.models), "models array");
+  assert(meta.models.length === 2, "2 models");
+  assert(Array.isArray(meta.tools), "tools array");
+});
+
+await test("T75: Prompt.txt matches council prompt", async () => {
+  const council = new Council("Prompt file test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const promptFile = fs.readFileSync(path.join(council.getRunDir(), "prompt.txt"), "utf-8");
+  assert(promptFile === "Prompt file test", "prompt matches");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

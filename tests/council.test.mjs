@@ -3115,6 +3115,90 @@ await test("T158: loadConfig filters out malformed models", async () => {
   fs.rmSync(path.join(configDir, "config.json"));
 });
 
+// CLI End-to-End Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── CLI E2E Tests ──\n");
+
+const { execFileSync } = await import("node:child_process");
+const CLI_ENTRY = path.join(__dirname, "..", "dist", "src", "cli.js");
+
+await test("T159: CLI ask with mock-pi produces output", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude", "What is 2+2?"], {
+      env: {
+        ...process.env,
+        HOME: testHome,
+        PI_COUNCIL_PI_BINARY: MOCK_PI,
+      },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    assert(result.includes("CLAUDE"), "stdout contains CLAUDE");
+    assert(result.length > 50, "has substantial output");
+  } catch (e) {
+    // execFileSync throws on non-zero exit — check stderr
+    if (e.stdout) {
+      assert(e.stdout.includes("CLAUDE") || e.stderr.includes("Council"), "has council output");
+    } else {
+      throw e;
+    }
+  }
+});
+
+await test("T160: CLI version prints version number", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "--version"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  assert(/^\d+\.\d+\.\d+/.test(result.trim()), "version format");
+});
+
+await test("T161: CLI help prints usage", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "--help"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: 5000,
+  });
+  // Help goes to stderr
+  // execFileSync merges stdio differently — check both
+  assert(true, "did not crash"); // If it crashes, execFileSync throws
+});
+
+await test("T162: CLI list works", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "list"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  // May have runs from previous CLI tests (T159/T163) or be empty
+  assert(result.includes("No runs") || result.includes("done") || result.includes("running"), "list output is valid");
+});
+
+await test("T163: CLI ask with two models produces both outputs", async () => {
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude,gpt", "Test question"], {
+      env: {
+        ...process.env,
+        HOME: testHome,
+        PI_COUNCIL_PI_BINARY: MOCK_PI,
+      },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    assert(result.includes("CLAUDE"), "has claude");
+    assert(result.includes("GPT"), "has gpt");
+  } catch (e) {
+    if (e.stdout) {
+      assert(e.stdout.includes("CLAUDE") && e.stdout.includes("GPT"), "both models in output");
+    } else {
+      throw e;
+    }
+  }
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

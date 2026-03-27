@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-const RUNS_DIR = path.join(os.homedir(), ".pi-council", "runs");
+function getRunsDir(): string { return path.join(os.homedir(), ".pi-council", "runs"); }
 
 export async function results(runId?: string): Promise<void> {
   const targetId = runId ?? getLatestRunId();
@@ -12,7 +12,7 @@ export async function results(runId?: string): Promise<void> {
     return;
   }
 
-  const runDir = path.join(RUNS_DIR, targetId);
+  const runDir = path.join(getRunsDir(), targetId);
   const mdPath = path.join(runDir, "results.md");
 
   // Wait for results if not yet available
@@ -34,8 +34,8 @@ function getLatestRunId(): string | undefined {
   try {
     return fs.readFileSync(latestFile, "utf-8").trim();
   } catch {
-    if (!fs.existsSync(RUNS_DIR)) return undefined;
-    const dirs = fs.readdirSync(RUNS_DIR).sort().reverse();
+    if (!fs.existsSync(getRunsDir())) return undefined;
+    const dirs = fs.readdirSync(getRunsDir()).sort().reverse();
     return dirs[0];
   }
 }

@@ -2,23 +2,27 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-const RUNS_DIR = path.join(os.homedir(), ".pi-council", "runs");
+function getRunsDir(): string {
+  return path.join(os.homedir(), ".pi-council", "runs");
+}
 
 export function list(): void {
-  if (!fs.existsSync(RUNS_DIR)) {
+  const runsDir = getRunsDir();
+
+  if (!fs.existsSync(runsDir)) {
     process.stdout.write("No runs found.\n");
     return;
   }
 
-  const dirs = fs.readdirSync(RUNS_DIR).sort().reverse();
+  const dirs = fs.readdirSync(runsDir).sort().reverse();
   if (dirs.length === 0) {
     process.stdout.write("No runs found.\n");
     return;
   }
 
   for (const dir of dirs) {
-    const metaPath = path.join(RUNS_DIR, dir, "meta.json");
-    const resultsPath = path.join(RUNS_DIR, dir, "results.json");
+    const metaPath = path.join(runsDir, dir, "meta.json");
+    const resultsPath = path.join(runsDir, dir, "results.json");
 
     let prompt = "?";
     let status = "unknown";

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-const RUNS_DIR = path.join(os.homedir(), ".pi-council", "runs");
+function getRunsDir(): string { return path.join(os.homedir(), ".pi-council", "runs"); }
 
 export function status(runId?: string): void {
   const targetId = runId ?? getLatestRunId();
@@ -12,7 +12,7 @@ export function status(runId?: string): void {
     return;
   }
 
-  const runDir = path.join(RUNS_DIR, targetId);
+  const runDir = path.join(getRunsDir(), targetId);
   if (!fs.existsSync(runDir)) {
     process.stderr.write(`Run not found: ${targetId}\n`);
     process.exitCode = 1;
@@ -50,8 +50,8 @@ function getLatestRunId(): string | undefined {
     return fs.readFileSync(latestFile, "utf-8").trim();
   } catch {
     // Fall back to most recent run directory
-    if (!fs.existsSync(RUNS_DIR)) return undefined;
-    const dirs = fs.readdirSync(RUNS_DIR).sort().reverse();
+    if (!fs.existsSync(getRunsDir())) return undefined;
+    const dirs = fs.readdirSync(getRunsDir()).sort().reverse();
     return dirs[0];
   }
 }

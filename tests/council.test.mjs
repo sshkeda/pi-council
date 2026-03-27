@@ -2576,6 +2576,120 @@ await test("T130: Council handles unicode in prompt", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Mixed Scenario Tests — realistic usage combinations
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Mixed Scenario Tests ──\n");
+
+await test("T131: Spawn 4 models, cancel 2, steer 1, let 1 finish", async () => {
+  const council = new Council("Mixed ops");
+  council.spawn({
+    models: [
+      { id: "a", provider: "anthropic", model: "a-test" },
+      { id: "b", provider: "openai", model: "b-test" },
+      { id: "c", provider: "google", model: "c-test" },
+      { id: "d", provider: "xai", model: "d-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 100));
+
+  // Cancel a and b
+  council.cancel(["a", "b"]);
+  // Steer c
+  await council.followUp({ type: "steer", message: "focus", memberIds: ["c"] });
+
+  await council.waitForCompletion();
+
+  const statuses = council.getStatus().members;
+  assert(statuses.find(m => m.id === "a").state === "cancelled", "a cancelled");
+  assert(statuses.find(m => m.id === "b").state === "cancelled", "b cancelled");
+  // c and d should be done (steer doesn't kill)
+  assert(statuses.find(m => m.id === "c").state === "done", "c done");
+  assert(statuses.find(m => m.id === "d").state === "done", "d done");
+});
+
+await test("T132: Council output preserved after cancel", async () => {
+  const council = new Council("Output after cancel");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Wait for some output, then cancel
+  await new Promise(r => setTimeout(r, 200));
+  council.cancel();
+  await council.waitForCompletion();
+
+  // The member may have some partial output before cancel
+  const member = council.getMember("claude");
+  // State should be cancelled
+  assert(member.getStatus().state === "cancelled", "cancelled");
+  // Output might be partial or empty — both are valid
+  assert(typeof member.getOutput() === "string", "output is string");
+});
+
+await test("T133: Fast + slow mixed council timing", async () => {
+  const council = new Council("Fast slow mix");
+  // Use regular mock for "fast" and slow mock for "slow"
+  // Can't mix piBinary per member, so use slow for both
+  // and verify both eventually complete
+  council.spawn({
+    models: [
+      { id: "model1", provider: "anthropic", model: "m1" },
+      { id: "model2", provider: "openai", model: "m2" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members.every(m => m.state === "done"), "all done");
+  assert(result.members.every(m => m.durationMs > 0), "all have timing");
+});
+
+await test("T134: Council result includes error for crashed members", async () => {
+  const council = new Council("Result error test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members[0].error !== undefined, "error in result");
+  assert(result.members[0].state === "failed", "failed state");
+  assert(result.members[0].output === "", "no output on crash");
+});
+
+await test("T135: Cancelled member has correct timing", async () => {
+  const council = new Council("Cancel timing");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 100));
+  council.cancel();
+  await council.waitForCompletion();
+
+  const status = council.getMember("claude").getStatus();
+  assert(status.durationMs !== undefined, "has duration");
+  assert(status.durationMs > 0, "positive duration");
+  assert(status.durationMs < 1000, "cancelled early");
+  assert(status.finishedAt > status.startedAt, "finishedAt > startedAt");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

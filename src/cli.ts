@@ -22,7 +22,6 @@ function parseArgs(argv: string[]): {
 
   let models: string[] | undefined;
   let cwd: string | undefined;
-  let profile: string | undefined;
   let runId: string | undefined;
   const rest: string[] = [];
 
@@ -33,9 +32,6 @@ function parseArgs(argv: string[]): {
       i += 2;
     } else if (args[i] === "--cwd" && i + 1 < args.length) {
       cwd = args[i + 1];
-      i += 2;
-    } else if (args[i] === "--profile" && i + 1 < args.length) {
-      profile = args[i + 1];
       i += 2;
     } else {
       rest.push(args[i]);
@@ -48,7 +44,7 @@ function parseArgs(argv: string[]): {
     runId = rest[0];
   }
 
-  return { command, runId, models, cwd, profile, prompt };
+  return { command, runId, models, cwd, prompt };
 }
 
 function printHelp(): void {
@@ -67,12 +63,10 @@ Commands:
 
 Flags:
   --models claude,gpt,grok    Select which models to run (default: all)
-  --profile max|fast|read-only Spawn profile (default: max)
   --cwd /path                  Working directory for agents
 
 Examples:
   pi-council ask "Should I refactor this module?"
-  pi-council ask --profile fast "Quick review of this PR"
   pi-council spawn --models claude,grok "Analyze MSFT"
   pi-council watch
   pi-council cleanup
@@ -80,16 +74,16 @@ Examples:
 }
 
 async function main(): Promise<void> {
-  const { command, runId, models, cwd, profile, prompt } = parseArgs(process.argv);
+  const { command, runId, models, cwd, prompt } = parseArgs(process.argv);
 
   switch (command) {
     case "ask":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      await ask(prompt, { models, cwd, profile });
+      await ask(prompt, { models, cwd });
       break;
     case "spawn":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      spawn(prompt, { models, cwd, profile });
+      spawn(prompt, { models, cwd });
       break;
     case "status":
       status(runId);
@@ -126,7 +120,7 @@ async function main(): Promise<void> {
       // Treat everything as an implicit ask
       const fullPrompt = [command, prompt].filter(Boolean).join(" ");
       if (fullPrompt.trim()) {
-        await ask(fullPrompt, { models, cwd, profile });
+        await ask(fullPrompt, { models, cwd });
       } else {
         printHelp();
       }

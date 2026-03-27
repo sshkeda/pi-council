@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Council test suite — deterministic tests using mock-pi.
+ * Council test suite - deterministic tests using mock-pi.
  *
  * Tests the full council lifecycle: spawn, follow-ups, cancel, status, streams.
  * Zero API calls. Fully sandboxed.
@@ -46,7 +46,7 @@ process.env.HOME = testHome;
 process.stdout.write("\n🧪 Council Test Suite\n\n");
 
 // ═══════════════════════════════════════════════════════════════════════
-// Unit Tests — no process spawning
+// Unit Tests - no process spawning
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("── Unit Tests ──\n");
@@ -73,25 +73,25 @@ await test("T2: CouncilRegistry tracks and retrieves councils", async () => {
   assert(registry.list().length === 1, "list after remove");
 });
 
-await test("T3: Profile resolution — max has 4 models with bash", async () => {
+await test("T3: Profile resolution — max has 4 models", async () => {
   const max = getProfile("max");
   assert(max !== undefined, "exists");
   assert(max.models.length === 4, "4 models");
-  assert(max.tools.includes("bash"), "has bash");
-  assert(max.tools.includes("read"), "has read");
+  assert(max.systemPrompt.length > 0, "has system prompt");
 });
 
-await test("T4: Profile resolution — fast has 2 models", async () => {
-  const fast = getProfile("fast");
-  assert(fast !== undefined, "exists");
-  assert(fast.models.length === 2, "2 models");
+await test("T4: Default models include all 4", async () => {
+  assert(DEFAULT_MODELS.length === 4, "4 default models");
+  assert(DEFAULT_MODELS[0].id === "claude", "claude first");
+  assert(DEFAULT_MODELS[3].id === "grok", "grok last");
 });
 
-await test("T5: Profile resolution — read-only excludes bash", async () => {
-  const ro = getProfile("read-only");
-  assert(ro !== undefined, "exists");
-  assert(!ro.tools.includes("bash"), "no bash");
-  assert(ro.tools.includes("read"), "has read");
+await test("T5: Each default model has provider and model fields", async () => {
+  for (const m of DEFAULT_MODELS) {
+    assert(m.id.length > 0, `${m.id} has id`);
+    assert(m.provider.length > 0, `${m.id} has provider`);
+    assert(m.model.length > 0, `${m.id} has model`);
+  }
 });
 
 await test("T6: Unknown profile returns undefined", async () => {
@@ -171,11 +171,10 @@ await test("T16: readStream throws for unknown member", async () => {
   assert(threw, "threw");
 });
 
-await test("T17: All profiles have council system prompts", async () => {
-  for (const [name, profile] of Object.entries(PROFILES)) {
-    assert(profile.systemPrompt.includes("council"), `${name} mentions council`);
-    assert(profile.systemPrompt.includes("independent"), `${name} mentions independence`);
-  }
+await test("T17: Max profile has council system prompt", async () => {
+  const max = PROFILES.max;
+  assert(max.systemPrompt.includes("council"), "mentions council");
+  assert(max.systemPrompt.includes("independent"), "mentions independence");
 });
 
 await test("T18: Registry active() filters correctly", async () => {
@@ -202,7 +201,7 @@ await test("T20: Council getMember returns correct member", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Integration Tests — spawn mock-pi processes
+// Integration Tests - spawn mock-pi processes
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("\n── Integration Tests (mock-pi) ──\n");
@@ -215,7 +214,7 @@ await test("T21: Council spawns mock-pi members and completes", async () => {
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -234,7 +233,7 @@ await test("T22: Council tracks member status during run", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -257,7 +256,7 @@ await test("T23: Council readStream returns member output", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -276,7 +275,7 @@ await test("T24: Council cancel kills running members", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -299,7 +298,7 @@ await test("T25: Council cancel specific member", async () => {
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -329,7 +328,7 @@ await test("T26: Council emits events during lifecycle", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -348,7 +347,7 @@ await test("T27: Council writes result artifacts on completion", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -377,18 +376,18 @@ await test("T28: Council handles mock-pi failure", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
   });
 
-  // Override env for the child — but we can't easily do that after spawn
+  // Override env for the child - but we can't easily do that after spawn
   // Instead, test with a nonexistent binary
   const council2 = new Council("Failure test 2");
   council2.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "nonexistent-binary-that-does-not-exist",
   });
@@ -408,7 +407,7 @@ await test("T29: Member waitForDone resolves immediately if already done", async
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -432,7 +431,7 @@ await test("T30: Four model council completes", async () => {
       { id: "gemini", provider: "google", model: "gemini-test" },
       { id: "grok", provider: "xai", model: "grok-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -446,7 +445,7 @@ await test("T30: Four model council completes", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Follow-up Tests — steer, abort, and council-level follow-ups
+// Follow-up Tests - steer, abort, and council-level follow-ups
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("\n── Follow-up Tests ──\n");
@@ -459,7 +458,7 @@ await test("T31: Council follow-up (steer) sends to all running members", async 
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -504,7 +503,7 @@ await test("T34: Council follow-up routes to specific members", async () => {
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -526,7 +525,7 @@ await test("T35: Council follow-up with empty memberIds defaults to all", async 
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -552,7 +551,7 @@ await test("T37: Member finish() closes stdin and allows process exit", async ()
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -571,7 +570,7 @@ await test("T38: Member getOutput returns accumulated text", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -584,30 +583,29 @@ await test("T38: Member getOutput returns accumulated text", async () => {
   assert(typeof output === "string", "is string");
 });
 
-await test("T39: Council timeout cancels members", async () => {
-  const council = new Council("Timeout test");
+await test("T39: Council cancel during processing works", async () => {
+  const council = new Council("Cancel during test");
 
-  // Set a very short timeout
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+    
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
-    timeoutSeconds: 0.05, // 50ms — mock-pi takes ~100ms
   });
 
+  // Cancel immediately after spawn
+  council.cancel();
   await council.waitForCompletion();
-  // Member should still complete since mock-pi is fast enough
-  // This mainly tests that the timeout timer doesn't crash
-  assert(council.isComplete(), "complete");
+  assert(council.isComplete(), "complete after cancel");
+  assert(council.getMember("claude").getStatus().state === "cancelled", "cancelled state");
 });
 
 await test("T40: Multiple sequential councils don't interfere", async () => {
   const c1 = new Council("Sequential Q1");
   c1.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -617,7 +615,7 @@ await test("T40: Multiple sequential councils don't interfere", async () => {
   const c2 = new Council("Sequential Q2");
   c2.spawn({
     models: [{ id: "gpt", provider: "openai", model: "gpt-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -639,7 +637,7 @@ await test("T41: Member durationMs is correct", async () => {
   const council = new Council("Duration test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -673,7 +671,7 @@ await test("T43: Council event listener removal works", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -694,7 +692,7 @@ await test("T45: Council result includes prompt text", async () => {
   const council = new Council("Include prompt in result");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -712,7 +710,7 @@ await test("T46: Council results.md includes all member names", async () => {
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -730,7 +728,7 @@ await test("T47: Council with custom system prompt passes it to members", async 
   const council = new Council("Custom prompt test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     systemPrompt: "You are a pirate. Speak like a pirate.",
     cwd: __dirname,
     piBinary: "node",
@@ -747,7 +745,7 @@ await test("T48: Member isAlive returns false after spawn failure", async () => 
   const council = new Council("Alive check");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "nonexistent-binary-12345",
   });
@@ -764,7 +762,7 @@ await test("T49: Concurrent councils complete independently", async () => {
 
   c1.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -772,7 +770,7 @@ await test("T49: Concurrent councils complete independently", async () => {
 
   c2.spawn({
     models: [{ id: "gpt", provider: "openai", model: "gpt-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -796,7 +794,7 @@ await test("T50: Council status shows correct finished count", async () => {
       { id: "gpt", provider: "openai", model: "gpt-test" },
       { id: "grok", provider: "xai", model: "grok-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -810,7 +808,7 @@ await test("T50: Council status shows correct finished count", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// RPC Protocol Tests — verify mock-pi speaks the protocol correctly
+// RPC Protocol Tests - verify mock-pi speaks the protocol correctly
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("\n── RPC Protocol Tests ──\n");
@@ -926,7 +924,7 @@ await test("T54: Member captures text deltas into output", async () => {
   const council = new Council("Text capture test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -946,7 +944,7 @@ await test("T55: Member output events fire in order", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -967,7 +965,7 @@ await test("T55: Member output events fire in order", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Live Follow-up Tests — steer/abort during active processing
+// Live Follow-up Tests - steer/abort during active processing
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("\n── Live Follow-up Tests ──\n");
@@ -1079,7 +1077,7 @@ await test("T59: Council with 2 models produces different outputs", async () => 
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "grok", provider: "xai", model: "grok-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1137,7 +1135,7 @@ await test("T61: Council.followUp sends steer to completed member without crash"
   const council = new Council("E2E steer test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1156,7 +1154,7 @@ await test("T62: Council.followUp sends abort with new prompt", async () => {
   const council = new Council("E2E abort test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1176,7 +1174,7 @@ await test("T63: Council.followUp targets specific members only", async () => {
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1197,7 +1195,7 @@ await test("T64: Council.cancel after completion is idempotent", async () => {
   const council = new Council("Idempotent cancel test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1216,7 +1214,7 @@ await test("T65: Council result members have correct model specs", async () => {
   const expectedModel = { id: "claude", provider: "anthropic", model: "special-model-v3" };
   council.spawn({
     models: [expectedModel],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1241,7 +1239,7 @@ await test("T66: Mock-pi crash (MOCK_PI_FAIL=true) is handled as member failure"
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1263,7 +1261,7 @@ await test("T66: Mock-pi crash (MOCK_PI_FAIL=true) is handled as member failure"
 
   // Can't set env on member.spawn() directly. Let's just verify the nonexistent binary path again.
   // The crash test via env var requires a wrapper script.
-  
+
   // Instead, verify that a member that gets killed reports correctly
   await council.waitForCompletion();
   assert(council.isComplete(), "council completed");
@@ -1311,13 +1309,13 @@ await test("T68: Member captures tool events from mock-pi", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
   });
 
-  // Set MOCK_PI_TOOL_CALLS for the next spawn — can't do retroactively
+  // Set MOCK_PI_TOOL_CALLS for the next spawn - can't do retroactively
   // But the default mock-pi doesn't use tool calls. We need to test the event
   // path differently. Let's verify the events that DO fire.
   await council.waitForCompletion();
@@ -1339,7 +1337,7 @@ await test("T69: Council handles custom run ID", async () => {
 
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1353,7 +1351,7 @@ await test("T70: Council getResult completedAt is after startedAt", async () => 
   const council = new Council("Timing test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1414,7 +1412,7 @@ await test("T72: Three model council all produce different outputs", async () =>
       { id: "gpt", provider: "openai", model: "gpt-test" },
       { id: "grok", provider: "xai", model: "grok-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1422,7 +1420,7 @@ await test("T72: Three model council all produce different outputs", async () =>
 
   const result = await council.waitForCompletion();
   const outputs = result.members.map(m => m.output);
-  
+
   // All outputs should be different
   assert(outputs[0] !== outputs[1], "claude != gpt");
   assert(outputs[1] !== outputs[2], "gpt != grok");
@@ -1433,7 +1431,7 @@ await test("T73: Council result JSON has all required fields", async () => {
   const council = new Council("JSON schema test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1465,7 +1463,7 @@ await test("T74: Meta.json has all required fields", async () => {
       { id: "claude", provider: "anthropic", model: "claude-test" },
       { id: "gpt", provider: "openai", model: "gpt-test" },
     ],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],
@@ -1481,14 +1479,13 @@ await test("T74: Meta.json has all required fields", async () => {
   assert(typeof meta.startedAt === "number", "startedAt");
   assert(Array.isArray(meta.models), "models array");
   assert(meta.models.length === 2, "2 models");
-  assert(Array.isArray(meta.tools), "tools array");
 });
 
 await test("T75: Prompt.txt matches council prompt", async () => {
   const council = new Council("Prompt file test");
   council.spawn({
     models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    tools: ["read"],
+
     cwd: __dirname,
     piBinary: "node",
     piBinaryArgs: [MOCK_PI],

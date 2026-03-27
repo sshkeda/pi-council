@@ -11,9 +11,7 @@ export interface ModelSpec {
 export interface Profile {
   name: string;
   models: ModelSpec[];
-  tools: string[];
   systemPrompt: string;
-  timeoutSeconds?: number;
 }
 
 export interface SpawnOptions {
@@ -21,14 +19,10 @@ export interface SpawnOptions {
   profile?: string;
   /** Or specify custom models */
   models?: ModelSpec[];
-  /** Custom tools (default: ["read"]) */
-  tools?: string[];
   /** Custom system prompt */
   systemPrompt?: string;
   /** Working directory for agents */
   cwd?: string;
-  /** Timeout in seconds */
-  timeoutSeconds?: number;
   /** Override the pi binary path (for testing with mock-pi) */
   piBinary?: string;
   /** Extra args to prepend (e.g. ["node"] when piBinary is a .mjs script) */

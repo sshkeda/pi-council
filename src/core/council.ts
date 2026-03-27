@@ -31,7 +31,6 @@ export class Council {
   private members: CouncilMember[] = [];
   private listeners: EventListener[] = [];
   private runDir: string;
-  private timeout: ReturnType<typeof setTimeout> | undefined;
 
   constructor(prompt: string, runId?: string) {
     this.runId = runId ?? generateRunId();
@@ -47,26 +46,20 @@ export class Council {
     const {
       profile: profileName = "max",
       models: customModels,
-      tools: customTools,
       systemPrompt: customSystemPrompt,
       cwd,
-      timeoutSeconds,
       piBinary,
       piBinaryArgs,
     } = options;
 
     // Resolve what to spawn
     let models: ModelSpec[];
-    let tools: string[];
     let systemPrompt: string;
-    let timeout: number | undefined;
 
     if (customModels) {
       // Custom spawn — use provided config
       models = customModels;
-      tools = customTools ?? ["read"];
       systemPrompt = customSystemPrompt ?? PROFILES.max.systemPrompt;
-      timeout = timeoutSeconds;
     } else {
       // Profile-based spawn
       const profile = getProfile(profileName);
@@ -74,9 +67,7 @@ export class Council {
         throw new Error(`Unknown profile: ${profileName}. Available: ${Object.keys(PROFILES).join(", ")}`);
       }
       models = profile.models;
-      tools = customTools ?? profile.tools;
       systemPrompt = customSystemPrompt ?? profile.systemPrompt;
-      timeout = timeoutSeconds ?? profile.timeoutSeconds;
     }
 
     // Create run directory and save metadata
@@ -88,7 +79,6 @@ export class Council {
         prompt: this.prompt,
         startedAt: this.startedAt,
         models,
-        tools,
         cwd,
       }, null, 2),
     );
@@ -114,23 +104,11 @@ export class Council {
       this.members.push(member);
 
       member.spawn(this.prompt, {
-        tools,
         systemPrompt,
         cwd,
         piBinary,
         piBinaryArgs,
       });
-    }
-
-    // Set up timeout if configured
-    if (timeout && timeout > 0) {
-      this.timeout = setTimeout(() => {
-        for (const member of this.members) {
-          if (member.isAlive()) {
-            member.cancel();
-          }
-        }
-      }, timeout * 1000);
     }
   }
 
@@ -161,11 +139,6 @@ export class Council {
    * Cancel specific member(s) or the entire council.
    */
   cancel(memberIds?: string[]): void {
-    if (this.timeout) {
-      clearTimeout(this.timeout);
-      this.timeout = undefined;
-    }
-
     const targets = memberIds
       ? this.members.filter((m) => memberIds.includes(m.id))
       : this.members;
@@ -283,11 +256,6 @@ export class Council {
   }
 
   private onComplete(): void {
-    if (this.timeout) {
-      clearTimeout(this.timeout);
-      this.timeout = undefined;
-    }
-
     const result = this.getResult();
 
     // Write artifacts

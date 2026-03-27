@@ -24,23 +24,7 @@ export const PROFILES: Record<string, Profile> = {
   max: {
     name: "max",
     models: DEFAULT_MODELS,
-    tools: ["read", "bash"],
     systemPrompt: COUNCIL_SYSTEM_PROMPT,
-    timeoutSeconds: 300,
-  },
-  fast: {
-    name: "fast",
-    models: DEFAULT_MODELS.slice(0, 2), // claude + gpt
-    tools: ["read"],
-    systemPrompt: COUNCIL_SYSTEM_PROMPT,
-    timeoutSeconds: 120,
-  },
-  "read-only": {
-    name: "read-only",
-    models: DEFAULT_MODELS,
-    tools: ["read"],
-    systemPrompt: COUNCIL_SYSTEM_PROMPT,
-    timeoutSeconds: 300,
   },
 };
 

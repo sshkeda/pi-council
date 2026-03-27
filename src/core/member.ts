@@ -56,7 +56,6 @@ export class CouncilMember {
   spawn(
     prompt: string,
     options: {
-      tools?: string[];
       systemPrompt?: string;
       cwd?: string;
       piBinary?: string;
@@ -64,7 +63,6 @@ export class CouncilMember {
     } = {},
   ): void {
     const {
-      tools = ["read"],
       systemPrompt,
       cwd,
       piBinary = "pi",
@@ -75,7 +73,6 @@ export class CouncilMember {
       "--mode", "rpc",
       "--provider", this.model.provider,
       "--model", this.model.model,
-      "--tools", tools.join(","),
       "--no-session",
     ];
 

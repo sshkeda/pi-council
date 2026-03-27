@@ -1,23 +1,16 @@
 import { Council } from "../core/council.js";
-import { DEFAULT_MODELS, resolveModels, PROFILES } from "../core/profiles.js";
+import { DEFAULT_MODELS, resolveModels } from "../core/profiles.js";
 import type { ModelSpec } from "../core/types.js";
 
 export interface AskOptions {
   models?: string[];
   cwd?: string;
-  profile?: string;
 }
 
 export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> {
-  const profileName = opts.profile ?? "max";
-  const profile = PROFILES[profileName];
-  if (!profile) {
-    throw new Error(`Unknown profile: ${profileName}`);
-  }
-
-  let models: ModelSpec[] = profile.models;
+  let models: ModelSpec[] = DEFAULT_MODELS;
   if (opts.models && opts.models.length > 0) {
-    models = resolveModels(profile.models, opts.models);
+    models = resolveModels(DEFAULT_MODELS, opts.models);
     if (models.length === 0) {
       throw new Error("No matching models found.");
     }
@@ -25,7 +18,6 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
 
   const council = new Council(prompt);
 
-  // Print progress
   council.on((event) => {
     switch (event.type) {
       case "member_started":
@@ -40,17 +32,12 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
     }
   });
 
-  process.stderr.write(`\n🏛️  Council (${models.length} models, profile: ${profileName})\n\n`);
+  process.stderr.write(`\n🏛️  Council (${models.length} models)\n\n`);
 
-  council.spawn({
-    models,
-    profile: profileName,
-    cwd: opts.cwd,
-  });
+  council.spawn({ models, cwd: opts.cwd });
 
   const result = await council.waitForCompletion();
 
-  // Print results
   process.stderr.write(`\n`);
   for (const member of result.members) {
     const icon = member.state === "done" ? "✅" : "❌";

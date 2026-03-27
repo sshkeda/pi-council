@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Council, CouncilRegistry } from "../../src/core/council.js";
-import { PROFILES } from "../../src/core/profiles.js";
+import { DEFAULT_MODELS } from "../../src/core/profiles.js";
 import type { ModelSpec, CouncilEvent } from "../../src/core/types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -41,11 +41,6 @@ export default function (pi: ExtensionAPI) {
       models: Type.Optional(
         Type.Array(Type.String(), {
           description: 'Model IDs to use (default: all 4). e.g. ["claude", "grok"]',
-        }),
-      ),
-      profile: Type.Optional(
-        Type.String({
-          description: `Spawn profile: ${Object.keys(PROFILES).join(", ")}. Default: "max"`,
         }),
       ),
     }),
@@ -120,15 +115,8 @@ export default function (pi: ExtensionAPI) {
           cwd: ctx.cwd,
         };
 
-        if (params.profile) {
-          spawnOptions.profile = params.profile;
-        }
-
         if (params.models && params.models.length > 0) {
-          // Resolve model IDs to ModelSpecs from the profile
-          const profileName = params.profile ?? "max";
-          const profile = PROFILES[profileName] ?? PROFILES.max;
-          const resolved = profile.models.filter((m) =>
+          const resolved = DEFAULT_MODELS.filter((m) =>
             params.models!.some((id) => id.toLowerCase() === m.id.toLowerCase()),
           );
           if (resolved.length > 0) {
@@ -169,7 +157,7 @@ export default function (pi: ExtensionAPI) {
           {
             type: "text",
             text:
-              `Council spawned: ${memberNames} (run: ${council.runId}, profile: ${params.profile ?? "max"})\n` +
+              `Council spawned: ${memberNames} (run: ${council.runId})\n` +
               `Results will be delivered automatically when all agents finish.\n` +
               `Continue with your other work.`,
           },

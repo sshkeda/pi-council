@@ -1,23 +1,16 @@
 import { Council, registry } from "../core/council.js";
-import { PROFILES, resolveModels } from "../core/profiles.js";
+import { DEFAULT_MODELS, resolveModels } from "../core/profiles.js";
 import type { ModelSpec } from "../core/types.js";
 
 export interface SpawnOptions {
   models?: string[];
   cwd?: string;
-  profile?: string;
 }
 
 export function spawn(prompt: string, opts: SpawnOptions = {}): void {
-  const profileName = opts.profile ?? "max";
-  const profile = PROFILES[profileName];
-  if (!profile) {
-    throw new Error(`Unknown profile: ${profileName}`);
-  }
-
-  let models: ModelSpec[] = profile.models;
+  let models: ModelSpec[] = DEFAULT_MODELS;
   if (opts.models && opts.models.length > 0) {
-    models = resolveModels(profile.models, opts.models);
+    models = resolveModels(DEFAULT_MODELS, opts.models);
     if (models.length === 0) {
       throw new Error("No matching models found.");
     }
@@ -26,13 +19,9 @@ export function spawn(prompt: string, opts: SpawnOptions = {}): void {
   const council = new Council(prompt);
   registry.add(council);
 
-  council.spawn({
-    models,
-    profile: profileName,
-    cwd: opts.cwd,
-  });
+  council.spawn({ models, cwd: opts.cwd });
 
   const modelNames = models.map((m) => m.id).join(", ");
   process.stdout.write(`${council.runId}\n`);
-  process.stderr.write(`Spawned: ${modelNames} (run: ${council.runId}, profile: ${profileName})\n`);
+  process.stderr.write(`Spawned: ${modelNames} (run: ${council.runId})\n`);
 }

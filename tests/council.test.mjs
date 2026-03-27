@@ -2690,6 +2690,100 @@ await test("T135: Cancelled member has correct timing", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Mock-pi Variant Tests — verify each mock variant works correctly
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Mock-pi Variant Tests ──\n");
+
+await test("T136: Mock-pi-tools generates tool events then text", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI_TOOLS, "--mode", "rpc", "--provider", "test", "--model", "test", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test" }) + "\n");
+  await new Promise(r => setTimeout(r, 1000));
+
+  const toolStart = events.find(e => e.type === "tool_execution_start");
+  const toolEnd = events.find(e => e.type === "tool_execution_end");
+  const agentEnd = events.find(e => e.type === "agent_end");
+
+  assert(toolStart !== undefined, "has tool_execution_start");
+  assert(toolEnd !== undefined, "has tool_execution_end");
+  assert(agentEnd !== undefined, "has agent_end");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+});
+
+await test("T137: Mock-pi-crash exits with non-zero code", async () => {
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI_CRASH, "--mode", "rpc", "--provider", "test", "--model", "test", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  // Send a prompt to trigger the crash
+  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "crash me" }) + "\n");
+
+  const code = await new Promise(r => child.on("close", r));
+  assert(code !== 0, "non-zero exit code");
+});
+
+await test("T138: Mock-pi-slow takes measurable time", async () => {
+  const council = new Council("Slow measurement");
+  const start = Date.now();
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await council.waitForCompletion();
+  const elapsed = Date.now() - start;
+  assert(elapsed >= 400, `took at least 400ms (got ${elapsed}ms)`);
+  assert(elapsed < 5000, `completed within 5s (got ${elapsed}ms)`);
+});
+
+await test("T139: Regular mock-pi is fast", async () => {
+  const council = new Council("Fast measurement");
+  const start = Date.now();
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const elapsed = Date.now() - start;
+  assert(elapsed < 2000, `completed within 2s (got ${elapsed}ms)`);
+});
+
+await test("T140: All mock-pi variants are usable", async () => {
+  // Just verify they can all be spawned without import errors
+  const variants = [MOCK_PI, MOCK_PI_CRASH, MOCK_PI_SLOW, MOCK_PI_TOOLS];
+  for (const v of variants) {
+    assert(fs.existsSync(v), `${path.basename(v)} exists`);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

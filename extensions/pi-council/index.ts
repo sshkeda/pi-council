@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Council, CouncilRegistry } from "../../src/core/council.js";
-import { DEFAULT_MODELS } from "../../src/core/profiles.js";
+import { loadConfig } from "../../src/core/config.js";
 import type { ModelSpec, CouncilEvent } from "../../src/core/types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -144,17 +144,26 @@ export default function (pi: ExtensionAPI) {
       });
 
       try {
+        const config = loadConfig();
         const spawnOptions: Record<string, unknown> = {
           cwd: ctx.cwd,
         };
 
+        if (config.systemPrompt) {
+          spawnOptions.systemPrompt = config.systemPrompt;
+        }
+
         if (params.models && params.models.length > 0) {
-          const resolved = DEFAULT_MODELS.filter((m) =>
+          const resolved = config.models.filter((m) =>
             params.models!.some((id) => id.toLowerCase() === m.id.toLowerCase()),
           );
           if (resolved.length > 0) {
             spawnOptions.models = resolved;
+          } else {
+            spawnOptions.models = config.models;
           }
+        } else {
+          spawnOptions.models = config.models;
         }
 
         council.spawn(spawnOptions as any);

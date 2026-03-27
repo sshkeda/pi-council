@@ -2487,6 +2487,95 @@ await test("T125: Registry list returns all councils in order", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Extension Contract Tests — methods the extension calls
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Extension Contract Tests ──\n");
+
+await test("T126: Council builds markdown with duration", async () => {
+  const council = new Council("Markdown duration");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const md = fs.readFileSync(path.join(council.getRunDir(), "results.md"), "utf-8");
+  // Should contain duration in format X.Xs
+  assert(/\d+\.\d+s/.test(md), "markdown contains duration");
+});
+
+await test("T127: Council result members array matches spawn order", async () => {
+  const council = new Council("Order test");
+  const models = [
+    { id: "alpha", provider: "anthropic", model: "a-test" },
+    { id: "beta", provider: "openai", model: "b-test" },
+    { id: "gamma", provider: "xai", model: "c-test" },
+  ];
+
+  council.spawn({
+    models,
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members[0].id === "alpha", "first is alpha");
+  assert(result.members[1].id === "beta", "second is beta");
+  assert(result.members[2].id === "gamma", "third is gamma");
+});
+
+await test("T128: Council getMember returns undefined for invalid id", async () => {
+  const council = new Council("getMember invalid");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  assert(council.getMember("nonexistent") === undefined, "undefined for invalid");
+  assert(council.getMember("claude") !== undefined, "found valid member");
+
+  await council.waitForCompletion();
+});
+
+await test("T129: CouncilStatus.prompt matches original", async () => {
+  const council = new Council("Status prompt match");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const status = council.getStatus();
+  assert(status.prompt === "Status prompt match", "prompt matches");
+  assert(status.runId === council.runId, "runId matches");
+
+  await council.waitForCompletion();
+});
+
+await test("T130: Council handles unicode in prompt", async () => {
+  const council = new Council("Test 🏛️ council with émojis and accénts");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.prompt.includes("🏛️"), "preserved emoji");
+  const promptFile = fs.readFileSync(path.join(council.getRunDir(), "prompt.txt"), "utf-8");
+  assert(promptFile.includes("🏛️"), "emoji in file");
+  assert(promptFile.includes("émojis"), "accents preserved");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

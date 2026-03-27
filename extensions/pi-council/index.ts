@@ -71,10 +71,31 @@ export default function (pi: ExtensionAPI) {
             if (member) {
               const status = member.getStatus();
               const icon = status.state === "done" ? "✅" : "❌";
+
+              // Build agreement snapshot after 2+ responses
+              let agreementNote = "";
+              if (finishedCount >= 2) {
+                const councilStatus = council.getStatus();
+                const doneMembers = councilStatus.members.filter(m =>
+                  m.state === "done" || m.state === "failed"
+                );
+                const succeeded = doneMembers.filter(m => m.state === "done");
+                const failedMembers = doneMembers.filter(m => m.state !== "done");
+
+                const lines = [
+                  `\n🏛️ Agreement update — ${finishedCount}/${totalMembers} done`,
+                  ``,
+                  `Agreement snapshot:`,
+                  `- responders: ${finishedCount}/${totalMembers}`,
+                  `- status: ${failedMembers.length > 0 ? `${succeeded.length} succeeded, ${failedMembers.length} failed` : `${succeeded.length} responded`}`,
+                ];
+                agreementNote = lines.join("\n");
+              }
+
               pi.sendMessage(
                 {
                   customType: "council-progress",
-                  content: `🏛️ ${icon} ${status.id.toUpperCase()} (${status.model.model}) — ${finishedCount}/${totalMembers} done\n\n${status.output || status.error || "(no output)"}`,
+                  content: `🏛️ ${icon} ${status.id.toUpperCase()} (${status.model.model}) — ${finishedCount}/${totalMembers} done\n\n${status.output || status.error || "(no output)"}${agreementNote}`,
                   display: true,
                 },
                 { deliverAs: "followUp", triggerTurn: false },

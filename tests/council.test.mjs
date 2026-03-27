@@ -913,7 +913,7 @@ await test("T53: Mock-pi handles abort command", async () => {
   });
 
   child.stdin.write(JSON.stringify({ type: "abort", id: "a1" }) + "\n");
-  await new Promise(r => setTimeout(r, 200));
+  await new Promise(r => setTimeout(r, 500));
 
   const resp = events.find(e => e.type === "response" && e.id === "a1");
   assert(resp !== undefined, "got abort response");

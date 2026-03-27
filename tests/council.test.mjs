@@ -2883,6 +2883,120 @@ await test("T145: systemPrompts for nonexistent model is ignored", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Final Validation Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Final Validation Tests ──\n");
+
+await test("T146: CouncilStatus members count matches spawned models", async () => {
+  const council = new Council("Status count test");
+  council.spawn({
+    models: [
+      { id: "a", provider: "p", model: "m" },
+      { id: "b", provider: "p", model: "m" },
+      { id: "c", provider: "p", model: "m" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  assert(council.getStatus().members.length === 3, "3 members in status");
+  await council.waitForCompletion();
+  assert(council.getStatus().members.length === 3, "still 3 after completion");
+});
+
+await test("T147: Council events fire in correct lifecycle order", async () => {
+  const eventTypes = [];
+  const council = new Council("Lifecycle order");
+  council.on(e => eventTypes.push(e.type));
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Verify order: started -> output(s) -> done -> complete
+  const startIdx = eventTypes.indexOf("member_started");
+  const firstOutput = eventTypes.indexOf("member_output");
+  const doneIdx = eventTypes.indexOf("member_done");
+  const completeIdx = eventTypes.indexOf("council_complete");
+
+  assert(startIdx < firstOutput, "started before output");
+  assert(firstOutput < doneIdx, "output before done");
+  assert(doneIdx < completeIdx, "done before complete");
+});
+
+await test("T148: Council with custom runId persists through lifecycle", async () => {
+  const id = "test-custom-id-" + Date.now();
+  const council = new Council("Custom ID lifecycle", id);
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  assert(council.runId === id, "runId matches at spawn");
+  assert(council.getStatus().runId === id, "runId in status");
+
+  const result = await council.waitForCompletion();
+  assert(result.runId === id, "runId in result");
+
+  const resultsJson = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "results.json"), "utf-8"
+  ));
+  assert(resultsJson.runId === id, "runId in artifact");
+});
+
+await test("T149: Council startedAt is close to creation time", async () => {
+  const before = Date.now();
+  const council = new Council("Timing test");
+  const after = Date.now();
+
+  assert(council.startedAt >= before, "startedAt >= creation start");
+  assert(council.startedAt <= after, "startedAt <= creation end");
+});
+
+await test("T150: Full 4-model council lifecycle test", async () => {
+  const events = [];
+  const council = new Council("Full lifecycle");
+  council.on(e => events.push(e));
+
+  council.spawn({
+    models: DEFAULT_MODELS.map(m => ({ ...m, model: m.id + "-test" })),
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+
+  // All 4 completed
+  assert(result.members.length === 4, "4 members");
+  assert(result.members.every(m => m.state === "done"), "all done");
+  assert(result.members.every(m => m.output.length > 0), "all have output");
+  assert(result.members.every(m => m.durationMs > 0), "all have duration");
+
+  // Events include starts, outputs, dones, and one complete
+  const starts = events.filter(e => e.type === "member_started");
+  const dones = events.filter(e => e.type === "member_done");
+  const completes = events.filter(e => e.type === "council_complete");
+  assert(starts.length === 4, "4 start events");
+  assert(dones.length === 4, "4 done events");
+  assert(completes.length === 1, "1 complete event");
+
+  // Artifacts exist
+  assert(fs.existsSync(path.join(council.getRunDir(), "results.json")), "results.json");
+  assert(fs.existsSync(path.join(council.getRunDir(), "results.md")), "results.md");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

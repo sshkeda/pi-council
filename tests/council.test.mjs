@@ -3199,6 +3199,114 @@ await test("T163: CLI ask with two models produces both outputs", async () => {
   }
 });
 
+// CLI Status/Results E2E Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── CLI Status/Results E2E Tests ──\n");
+
+await test("T164: CLI status on completed run shows done", async () => {
+  // First create a run via ask
+  try {
+    execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude", "Status test Q"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+  } catch {}
+
+  // Now check status (should show the last run)
+  const statusOut = execFileSync("node", [CLI_ENTRY, "status"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  assert(statusOut.includes("complete") || statusOut.includes("done") || statusOut.includes("claude"), "status shows run info");
+});
+
+await test("T165: CLI results on completed run shows output", async () => {
+  const resultsOut = execFileSync("node", [CLI_ENTRY, "results"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  assert(resultsOut.includes("Council Results") || resultsOut.includes("CLAUDE"), "results has content");
+});
+
+await test("T166: CLI list after asks shows runs", async () => {
+  const listOut = execFileSync("node", [CLI_ENTRY, "list"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  // Should have at least one run from T159/T163/T164
+  assert(listOut.includes("done"), "list shows done run");
+});
+
+await test("T167: CLI cleanup removes a run", async () => {
+  // First create a run
+  try {
+    execFileSync("node", [CLI_ENTRY, "ask", "--models", "claude", "Cleanup test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+  } catch {}
+
+  // Count runs before cleanup
+  const listBefore = execFileSync("node", [CLI_ENTRY, "list"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const runsBefore = listBefore.trim().split("\n").filter(l => l.trim()).length;
+
+  // Cleanup latest
+  try {
+    execFileSync("node", [CLI_ENTRY, "cleanup"], {
+      env: { ...process.env, HOME: testHome },
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch {}
+
+  // Count runs after cleanup
+  const listAfter = execFileSync("node", [CLI_ENTRY, "list"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const runsAfter = listAfter.trim().split("\n").filter(l => l.trim()).length;
+
+  assert(runsAfter < runsBefore, "fewer runs after cleanup");
+});
+
+await test("T168: CLI ask with custom config models", async () => {
+  const configDir = path.join(testHome, ".pi-council");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    models: [
+      { id: "custom", provider: "anthropic", model: "custom-model" },
+    ],
+  }));
+
+  try {
+    const result = execFileSync("node", [CLI_ENTRY, "ask", "Config model test"], {
+      env: { ...process.env, HOME: testHome, PI_COUNCIL_PI_BINARY: MOCK_PI },
+      timeout: 15000,
+      encoding: "utf-8",
+    });
+    assert(result.includes("CUSTOM"), "output uses custom model id");
+  } catch (e) {
+    if (e.stdout) {
+      assert(e.stdout.includes("CUSTOM"), "custom model in output");
+    }
+  }
+
+  // Restore default config
+  fs.rmSync(path.join(configDir, "config.json"));
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

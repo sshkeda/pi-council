@@ -4,7 +4,7 @@ import * as os from "node:os";
 
 function getRunsDir(): string { return path.join(os.homedir(), ".pi-council", "runs"); }
 
-export async function results(runId?: string): Promise<void> {
+export async function results(runId?: string, json = false): Promise<void> {
   const targetId = runId ?? getLatestRunId();
   if (!targetId) {
     process.stderr.write("No runs found.\n");
@@ -19,6 +19,17 @@ export async function results(runId?: string): Promise<void> {
   if (!fs.existsSync(mdPath)) {
     process.stderr.write(`Waiting for results (${targetId})...\n`);
     await waitForFile(mdPath, 600_000);
+  }
+
+  if (json) {
+    const jsonPath = path.join(runDir, "results.json");
+    if (fs.existsSync(jsonPath)) {
+      process.stdout.write(fs.readFileSync(jsonPath, "utf-8") + "\n");
+    } else {
+      process.stderr.write("Results not available.\n");
+      process.exitCode = 1;
+    }
+    return;
   }
 
   if (fs.existsSync(mdPath)) {

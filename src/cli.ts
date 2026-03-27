@@ -94,7 +94,7 @@ async function main(): Promise<void> {
       status(runId, json);
       break;
     case "results":
-      await results(runId);
+      await results(runId, json);
       break;
     case "watch":
       await watch(runId);

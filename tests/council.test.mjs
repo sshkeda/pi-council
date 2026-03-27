@@ -4294,6 +4294,41 @@ await test("T220: list --json with empty runs dir", async () => {
   fs.rmSync(freshHome, { recursive: true, force: true });
 });
 
+// results --json Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── results --json Tests ──\n");
+
+await test("T221: CLI results --json outputs valid JSON", async () => {
+  const result = execFileSync("node", [CLI_ENTRY, "results", "--json"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const parsed = JSON.parse(result.trim());
+  assert(parsed.runId !== undefined, "has runId");
+  assert(Array.isArray(parsed.members), "has members");
+  assert(parsed.members[0].output.length > 0, "member has output");
+});
+
+await test("T222: results --json has same data as status --json", async () => {
+  const resultsOut = execFileSync("node", [CLI_ENTRY, "results", "--json"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const statusOut = execFileSync("node", [CLI_ENTRY, "status", "--json"], {
+    env: { ...process.env, HOME: testHome },
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+
+  const r = JSON.parse(resultsOut.trim());
+  const s = JSON.parse(statusOut.trim());
+  assert(r.runId === s.runId, "same runId");
+  assert(r.members.length === s.members.length, "same member count");
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

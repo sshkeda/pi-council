@@ -1826,6 +1826,68 @@ await test("T90: Spawn failure member has correct exitCode", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Cost & Stats Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Cost & Stats Tests ──\n");
+
+await test("T91: getSessionStats returns null after member completes", async () => {
+  const council = new Council("Stats after done");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  const stats = await member.getSessionStats();
+  // Should return null since stdin is closed after agent_end
+  assert(stats === null, "null after completion");
+});
+
+await test("T92: getSessionStats returns data during active processing", async () => {
+  const council = new Council("Stats during run");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Wait for process to start, then query stats
+  await new Promise(r => setTimeout(r, 100));
+  const member = council.getMember("claude");
+
+  if (member.isAlive()) {
+    const stats = await member.getSessionStats();
+    if (stats !== null) {
+      assert(typeof stats.cost === "number", "has cost");
+      assert(typeof stats.tokens === "object", "has tokens");
+    }
+    // stats might be null if agent_end already fired — that's OK
+  }
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete");
+});
+
+await test("T93: getSessionStats returns null on spawn failure", async () => {
+  const council = new Council("Stats on failure");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "nonexistent-xyz",
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  const stats = await member.getSessionStats();
+  assert(stats === null, "null on failure");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

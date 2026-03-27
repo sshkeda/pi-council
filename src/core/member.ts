@@ -225,6 +225,23 @@ export class CouncilMember {
   }
 
   /**
+   * Get session stats (tokens, cost) via RPC get_session_stats.
+   * Returns null if the member is not alive or the command fails.
+   */
+  async getSessionStats(): Promise<{ tokens: { input: number; output: number; total: number }; cost: number } | null> {
+    try {
+      if (!this.child?.stdin?.writable) return null;
+      const resp = await this.sendRpcCommand({ type: "get_session_stats" }, 5000);
+      if (resp.success && resp.data) {
+        return resp.data as { tokens: { input: number; output: number; total: number }; cost: number };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Whether this member is still alive.
    */
   isAlive(): boolean {

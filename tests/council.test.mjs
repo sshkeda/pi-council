@@ -2010,6 +2010,102 @@ await test("T100: Council run directory is unique per council", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Result Artifact & Markdown Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Result Artifact & Markdown Tests ──\n");
+
+await test("T101: Results.json contains completedAt after startedAt", async () => {
+  const council = new Council("Artifact timing");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const results = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "results.json"), "utf-8"
+  ));
+  assert(results.completedAt >= results.startedAt, "completedAt >= startedAt");
+});
+
+await test("T102: Results.md contains each member's output", async () => {
+  const council = new Council("Markdown output test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "grok", provider: "xai", model: "grok-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const md = fs.readFileSync(path.join(council.getRunDir(), "results.md"), "utf-8");
+
+  // Each member's actual output should be in the markdown
+  const claudeOutput = council.getMember("claude").getOutput();
+  const grokOutput = council.getMember("grok").getOutput();
+  assert(md.includes(claudeOutput.slice(0, 50)), "md contains claude output");
+  assert(md.includes(grokOutput.slice(0, 50)), "md contains grok output");
+});
+
+await test("T103: Failed member shows error in results.json", async () => {
+  const council = new Council("Error in results");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  const results = JSON.parse(fs.readFileSync(
+    path.join(council.getRunDir(), "results.json"), "utf-8"
+  ));
+  assert(results.members[0].state === "failed", "failed state in json");
+  assert(results.members[0].error !== undefined, "error in json");
+});
+
+await test("T104: Results.md shows failure icon for failed member", async () => {
+  const council = new Council("Failure in md");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_CRASH],
+  });
+
+  await council.waitForCompletion();
+  const md = fs.readFileSync(path.join(council.getRunDir(), "results.md"), "utf-8");
+  assert(md.includes("❌"), "has failure icon");
+  assert(md.includes("CLAUDE"), "has model name");
+});
+
+await test("T105: Council getRunDir exists and is writable", async () => {
+  const council = new Council("Writable dir test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const dir = council.getRunDir();
+  assert(fs.existsSync(dir), "dir exists");
+  // Should have meta.json, prompt.txt, results.json, results.md
+  const files = fs.readdirSync(dir);
+  assert(files.includes("meta.json"), "has meta.json");
+  assert(files.includes("prompt.txt"), "has prompt.txt");
+  assert(files.includes("results.json"), "has results.json");
+  assert(files.includes("results.md"), "has results.md");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

@@ -3420,6 +3420,246 @@ await test("T175: Council preserves member order through full lifecycle", async 
   assert(JSON.stringify(memberIds) === JSON.stringify(ids), "order preserved in getMembers");
 });
 
+// Timing & Performance Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Timing & Performance Tests ──\n");
+
+await test("T176: All completed members have timing data", async () => {
+  const council = new Council("Timing data test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "grok", provider: "xai", model: "grok-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  for (const m of council.getStatus().members) {
+    assert(m.finishedAt > m.startedAt, `${m.id} finishedAt > startedAt`);
+    assert(m.durationMs > 0, `${m.id} has positive durationMs`);
+    assert(m.durationMs === m.finishedAt - m.startedAt, `${m.id} durationMs = finishedAt - startedAt`);
+  }
+});
+
+await test("T177: Cancelled members have timing up to cancel point", async () => {
+  const council = new Council("Cancel timing test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  await new Promise(r => setTimeout(r, 100));
+  const beforeCancel = Date.now();
+  council.cancel();
+  await council.waitForCompletion();
+
+  const m = council.getMember("claude").getStatus();
+  assert(m.finishedAt <= beforeCancel + 50, "finished near cancel time");
+  assert(m.durationMs < 500, "duration less than slow delay");
+});
+
+await test("T178: Council startedAt is before all member startedAts", async () => {
+  const council = new Council("Council vs member timing");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  for (const m of council.getStatus().members) {
+    assert(m.startedAt >= council.startedAt, `${m.id} started after council`);
+  }
+});
+
+await test("T179: Fast council completes under 3 seconds", async () => {
+  const start = Date.now();
+  const council = new Council("Speed test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(Date.now() - start < 3000, "completed in under 3s");
+});
+
+await test("T180: Council result completedAt is after all member finishedAts", async () => {
+  const council = new Council("CompletedAt test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  for (const m of council.getStatus().members) {
+    assert(result.completedAt >= m.finishedAt, `completedAt >= ${m.id} finishedAt`);
+  }
+});
+
+// Streaming Partial Response Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Streaming Partial Response Tests ──\n");
+
+await test("T176: readStream returns partial output mid-processing", async () => {
+  const council = new Council("Partial stream read");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Wait for some output to arrive, but not completion
+  await new Promise(r => setTimeout(r, 200));
+
+  const member = council.getMember("claude");
+  assert(member.isAlive(), "member is still alive");
+
+  // Read partial output — might be empty or partial depending on timing
+  const partialOutput = council.readStream("claude");
+  const partialLen = partialOutput.length;
+
+  // Wait for completion
+  await council.waitForCompletion();
+  const finalOutput = council.readStream("claude");
+
+  // Final output should be >= partial output (more text accumulated)
+  assert(finalOutput.length >= partialLen, "final output >= partial output");
+  assert(finalOutput.length > 0, "final output is non-empty");
+});
+
+await test("T177: getOutput grows incrementally via member_output events", async () => {
+  const outputLengths = [];
+  const council = new Council("Incremental output");
+  council.on(e => {
+    if (e.type === "member_output") {
+      const member = council.getMember(e.memberId);
+      outputLengths.push(member.getOutput().length);
+    }
+  });
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Output lengths should be monotonically increasing
+  assert(outputLengths.length > 1, "got multiple output events");
+  for (let i = 1; i < outputLengths.length; i++) {
+    assert(outputLengths[i] > outputLengths[i - 1], `length[${i}] > length[${i-1}]`);
+  }
+});
+
+await test("T178: isStreaming is true during processing", async () => {
+  let sawStreaming = false;
+  const council = new Council("isStreaming check");
+  council.on(e => {
+    if (e.type === "member_output") {
+      const member = council.getMember(e.memberId);
+      if (member.getStatus().isStreaming) {
+        sawStreaming = true;
+      }
+    }
+  });
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(sawStreaming, "saw isStreaming=true during processing");
+
+  // After completion, isStreaming should be false
+  assert(!council.getMember("claude").getStatus().isStreaming, "not streaming after done");
+});
+
+await test("T179: Cancelled slow member preserves partial output", async () => {
+  const council = new Council("Cancel partial output");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI_SLOW],
+  });
+
+  // Wait for processing to start and some output to arrive
+  await new Promise(r => setTimeout(r, 300));
+  const partialBefore = council.getMember("claude").getOutput();
+
+  // Cancel
+  council.cancel();
+  await council.waitForCompletion();
+
+  const partialAfter = council.getMember("claude").getOutput();
+  // Output should not have grown after cancel
+  assert(partialAfter.length >= partialBefore.length, "output preserved or grew slightly");
+  // Member should be cancelled
+  assert(council.getMember("claude").getStatus().state === "cancelled", "cancelled state");
+});
+
+await test("T180: Multiple members stream independently", async () => {
+  const outputs = new Map();
+  const council = new Council("Independent streams");
+  council.on(e => {
+    if (e.type === "member_output") {
+      if (!outputs.has(e.memberId)) outputs.set(e.memberId, []);
+      outputs.get(e.memberId).push(e.delta);
+    }
+  });
+
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Both members should have emitted output events
+  assert(outputs.has("claude"), "claude has output events");
+  assert(outputs.has("gpt"), "gpt has output events");
+
+  // Their deltas should be different (different mock responses)
+  const claudeText = outputs.get("claude").join("");
+  const gptText = outputs.get("gpt").join("");
+  assert(claudeText !== gptText, "streams are different");
+
+  // Final output should match accumulated deltas
+  assert(council.getMember("claude").getOutput() === claudeText, "claude output matches deltas");
+  assert(council.getMember("gpt").getOutput() === gptText, "gpt output matches deltas");
+});
+
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

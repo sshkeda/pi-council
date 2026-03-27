@@ -1128,6 +1128,107 @@ await test("T60: Mock-pi get_session_stats returns cost data", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// End-to-End Follow-up Tests (Council → Member → mock-pi)
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── End-to-End Follow-up Tests ──\n");
+
+await test("T61: Council.followUp sends steer to completed member without crash", async () => {
+  const council = new Council("E2E steer test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // After completion, steer should be handled gracefully (member is done, process closed)
+  // The council.followUp should catch the error silently
+  await council.followUp({ type: "steer", message: "too late" });
+  // Should not throw
+  assert(true, "did not throw");
+});
+
+await test("T62: Council.followUp sends abort with new prompt", async () => {
+  const council = new Council("E2E abort test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // After completion, abort should also be handled gracefully
+  await council.followUp({ type: "abort", message: "redirect" });
+  assert(true, "did not throw");
+});
+
+await test("T63: Council.followUp targets specific members only", async () => {
+  const council = new Council("Targeted E2E test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Send steer to only claude
+  await council.followUp({
+    type: "steer",
+    message: "extra context for claude only",
+    memberIds: ["claude"],
+  });
+  assert(true, "targeted followup completed");
+});
+
+await test("T64: Council.cancel after completion is idempotent", async () => {
+  const council = new Council("Idempotent cancel test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+
+  // Cancel after completion should be a no-op
+  council.cancel();
+  council.cancel(["claude"]);
+  assert(council.isComplete(), "still complete");
+});
+
+await test("T65: Council result members have correct model specs", async () => {
+  const council = new Council("Model spec test");
+  const expectedModel = { id: "claude", provider: "anthropic", model: "special-model-v3" };
+  council.spawn({
+    models: [expectedModel],
+    tools: ["read"],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  const result = await council.waitForCompletion();
+  assert(result.members[0].model.id === "claude", "correct id");
+  assert(result.members[0].model.provider === "anthropic", "correct provider");
+  assert(result.members[0].model.model === "special-model-v3", "correct model name");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

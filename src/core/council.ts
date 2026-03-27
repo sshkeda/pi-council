@@ -49,6 +49,7 @@ export class Council {
       profile: profileName = "max",
       models: customModels,
       systemPrompt: customSystemPrompt,
+      systemPrompts,
       cwd,
       piBinary,
       piBinaryArgs,
@@ -105,8 +106,11 @@ export class Council {
 
       this.members.push(member);
 
+      // Use per-model prompt if provided, otherwise fall back to shared prompt
+      const memberPrompt = systemPrompts?.[model.id] ?? systemPrompt;
+
       member.spawn(this.prompt, {
-        systemPrompt,
+        systemPrompt: memberPrompt,
         cwd,
         piBinary,
         piBinaryArgs,

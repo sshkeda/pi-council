@@ -19,8 +19,10 @@ export interface SpawnOptions {
   profile?: string;
   /** Or specify custom models */
   models?: ModelSpec[];
-  /** Custom system prompt */
+  /** Custom system prompt (applied to all members) */
   systemPrompt?: string;
+  /** Per-model system prompt overrides (key: model id, value: prompt) */
+  systemPrompts?: Record<string, string>;
   /** Working directory for agents */
   cwd?: string;
   /** Override the pi binary path (for testing with mock-pi) */

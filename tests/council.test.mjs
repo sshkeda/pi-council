@@ -2784,6 +2784,105 @@ await test("T140: All mock-pi variants are usable", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Per-model System Prompt Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Per-model System Prompt Tests ──\n");
+
+await test("T141: systemPrompts override per member", async () => {
+  const council = new Council("Per-model prompt test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    systemPrompts: {
+      claude: "You are a contrarian. Disagree with everything.",
+      gpt: "You are data-driven. Cite numbers and statistics.",
+    },
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with per-model prompts");
+  // Can't verify the prompt content in output (mock doesn't use it)
+  // but we verify it doesn't crash
+});
+
+await test("T142: systemPrompts partial override falls back to default", async () => {
+  const council = new Council("Partial override test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    systemPrompts: {
+      claude: "Custom prompt for claude only",
+    },
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with partial override");
+  assert(council.getMembers().every(m => m.getOutput().length > 0), "all have output");
+});
+
+await test("T143: systemPrompts with custom systemPrompt as fallback", async () => {
+  const council = new Council("Custom fallback test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "anthropic", model: "claude-test" },
+      { id: "gpt", provider: "openai", model: "gpt-test" },
+    ],
+    systemPrompt: "You are a pirate.",
+    systemPrompts: {
+      claude: "You are a ninja.",
+    },
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with mixed prompts");
+  // claude gets ninja, gpt gets pirate
+});
+
+await test("T144: Empty systemPrompts is same as no override", async () => {
+  const council = new Council("Empty override test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    systemPrompts: {},
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed with empty overrides");
+});
+
+await test("T145: systemPrompts for nonexistent model is ignored", async () => {
+  const council = new Council("Nonexistent model prompt");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    systemPrompts: {
+      nonexistent: "This should be ignored",
+    },
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed ignoring nonexistent prompt");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════
 

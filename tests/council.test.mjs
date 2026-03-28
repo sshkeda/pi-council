@@ -562,7 +562,7 @@ await test("T37: Member finish() closes stdin and allows process exit", async ()
 
   await council.waitForCompletion();
   const member = council.getMember("claude");
-  assert(member.isDone(), "done after wait");
+  assert(member.hasResult(), "has result after wait");
 
   // finish() should not throw
   member.finish();

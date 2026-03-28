@@ -209,7 +209,7 @@ export class Council {
    * Whether all members have finished.
    */
   isComplete(): boolean {
-    return this.members.length > 0 && this.members.every((m) => m.isDone());
+    return this.members.length > 0 && this.members.every((m) => m.hasResult());
   }
 
   /**
@@ -274,6 +274,11 @@ export class Council {
 
   private onComplete(): void {
     const result = this.getResult();
+
+    // Close all member RPC sessions now that the council is done
+    for (const member of this.members) {
+      member.finish();
+    }
 
     // Write artifacts
     this.writeArtifacts(result);

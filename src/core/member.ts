@@ -124,18 +124,14 @@ export class CouncilMember {
 
     this.child.on("close", (code) => {
       this.exitCode = code;
-      // Only transition if still running — don't overwrite cancelled/failed states
+      // Only transition if still running/spawning — agent_end already
+      // handles the normal done transition. This catches crashes and
+      // processes killed externally.
       if (this.state === "running" || this.state === "spawning") {
-        if (code === 0) {
-          this.state = "done";
-          this.finishedAt = Date.now();
-          this.emit({ type: "member_done", memberId: this.id, output: this.output });
-        } else {
-          this.state = "failed";
-          this.error = this.stderrOutput.trim() || `Process exited with code ${code}`;
-          this.finishedAt = Date.now();
-          this.emit({ type: "member_failed", memberId: this.id, error: this.error });
-        }
+        this.state = "failed";
+        this.error = this.stderrOutput.trim() || `Process exited with code ${code}`;
+        this.finishedAt = Date.now();
+        this.emit({ type: "member_failed", memberId: this.id, error: this.error });
       }
       this.isStreaming = false;
     });
@@ -152,6 +148,8 @@ export class CouncilMember {
    */
   async steer(message: string): Promise<void> {
     this.ensureAlive();
+    // Re-activate if done — the process is still alive, we're sending more work
+    if (this.state === "done") this.state = "running";
     await this.sendRpcCommand({ type: "steer", message });
   }
 
@@ -161,6 +159,7 @@ export class CouncilMember {
    */
   async followUp(message: string): Promise<void> {
     this.ensureAlive();
+    if (this.state === "done") this.state = "running";
     await this.sendRpcCommand({ type: "follow_up", message });
   }
 
@@ -251,17 +250,26 @@ export class CouncilMember {
   }
 
   /**
-   * Whether this member is still alive.
+   * Whether this member's process can still receive commands.
+   * A "done" member is still alive — its process is open for steer/followUp.
    */
   isAlive(): boolean {
-    return this.state === "running" || this.state === "spawning";
+    return this.state === "running" || this.state === "spawning" || this.state === "done";
   }
 
   /**
-   * Whether this member has finished (success or failure).
+   * Whether this member has produced a result (done, failed, cancelled, timed_out).
+   * A "done" member has a result but its process may still be alive.
+   */
+  hasResult(): boolean {
+    return this.state === "done" || this.state === "failed" || this.state === "cancelled" || this.state === "timed_out";
+  }
+
+  /**
+   * Whether this member's process has fully exited.
    */
   isDone(): boolean {
-    return !this.isAlive();
+    return this.state === "failed" || this.state === "cancelled" || this.state === "timed_out";
   }
 
   /**
@@ -278,7 +286,7 @@ export class CouncilMember {
    * Wait for this member to finish.
    */
   waitForDone(): Promise<MemberStatus> {
-    if (this.isDone()) return Promise.resolve(this.getStatus());
+    if (this.hasResult()) return Promise.resolve(this.getStatus());
     return new Promise((resolve) => {
       const unsub = this.on((event) => {
         if (
@@ -390,10 +398,15 @@ export class CouncilMember {
 
       case "agent_end":
         this.isStreaming = false;
-        // Capture cost/token stats before closing stdin
-        this.captureStats().finally(() => {
-          this.closeStdin();
-        });
+        // Capture cost/token stats
+        this.captureStats().catch(() => {});
+        // Mark as done — but keep process alive for steer/followUp.
+        // Council calls finish() to close stdin when it's ready.
+        if (this.state === "running") {
+          this.state = "done";
+          this.finishedAt = Date.now();
+          this.emit({ type: "member_done", memberId: this.id, output: this.output });
+        }
         break;
 
       case "message_update": {

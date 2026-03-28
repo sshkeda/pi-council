@@ -52,17 +52,13 @@ export default function (pi: ExtensionAPI) {
       registry.add(council);
 
       let finishedCount = 0;
-      let totalMembers = 0;
       let delivered = false;
 
       council.on((event: CouncilEvent) => {
-        if (event.type === "member_started") {
-          totalMembers++;
-        }
-
         // Deliver each member's result as it finishes — every member, including the last
         if (event.type === "member_done" || event.type === "member_failed") {
           finishedCount++;
+          const totalMembers = council.getMembers().length;
           ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${totalMembers} done`);
 
           if (isInteractive) {
@@ -108,6 +104,13 @@ export default function (pi: ExtensionAPI) {
         if (event.type === "council_complete" && isInteractive && !delivered) {
           delivered = true;
           ctx.ui.setStatus("council", undefined);
+          // Clean up registry to prevent memory leak — keep last 5 runs
+          const all = registry.list();
+          if (all.length > 5) {
+            for (const old of all.slice(0, all.length - 5)) {
+              registry.remove(old.runId);
+            }
+          }
 
           const result = council.getResult();
           const succeeded = result.members.filter(m => m.state === "done").length;

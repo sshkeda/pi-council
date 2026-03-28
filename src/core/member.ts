@@ -44,6 +44,7 @@ export class CouncilMember {
   }>();
   private responseIdCounter = 0;
   private sessionStats: { tokens: { input: number; output: number; total: number }; cost: number } | null = null;
+  private toolEvents: unknown[] = [];
 
   constructor(id: string, model: ModelSpec) {
     this.id = id;
@@ -215,6 +216,7 @@ export class CouncilMember {
       durationMs: this.finishedAt ? this.finishedAt - this.startedAt : undefined,
       exitCode: this.exitCode,
       stats: this.sessionStats,
+      toolEvents: [...this.toolEvents],
     };
   }
 
@@ -419,6 +421,7 @@ export class CouncilMember {
       }
 
       case "tool_execution_start": {
+        this.toolEvents.push({ ...event });
         const toolName = event.toolName as string;
         const args = event.args as Record<string, unknown>;
         this.emit({ type: "member_tool_start", memberId: this.id, toolName, args });
@@ -426,6 +429,7 @@ export class CouncilMember {
       }
 
       case "tool_execution_end": {
+        this.toolEvents.push({ ...event });
         const toolName = event.toolName as string;
         const isError = event.isError as boolean;
         this.emit({ type: "member_tool_end", memberId: this.id, toolName, isError });

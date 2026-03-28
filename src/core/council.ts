@@ -114,6 +114,7 @@ export class Council {
                   stderr: status.stderr,
                   durationMs: status.durationMs,
                   stats: status.stats,
+                  toolEvents: status.toolEvents,
                 }, null, 2),
               );
             } catch {}
@@ -260,6 +261,7 @@ export class Council {
           error: status.error,
           durationMs: status.durationMs,
           stats: status.stats,
+          toolEvents: status.toolEvents,
         };
       }),
     };

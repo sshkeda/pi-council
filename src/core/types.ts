@@ -61,6 +61,8 @@ export interface MemberStatus {
   exitCode?: number | null;
   /** Session stats (tokens, cost) if available */
   stats?: { tokens: { input: number; output: number; total: number }; cost: number } | null;
+  /** Raw pi RPC events for tool executions (start + end, in order) */
+  toolEvents: unknown[];
 }
 
 export type FollowUpType = "abort" | "steer";

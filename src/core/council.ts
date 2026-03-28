@@ -96,12 +96,32 @@ export class Council {
       member.on((event) => {
         this.emit(event);
 
-        // Track time-to-first-result
-        if (
-          (event.type === "member_done" || event.type === "member_failed") &&
-          this.ttfrMs === undefined
-        ) {
-          this.ttfrMs = Date.now() - this.startedAt;
+        // On member completion: write per-member result to disk, track TTFR
+        if (event.type === "member_done" || event.type === "member_failed") {
+          const memberId = (event as { memberId: string }).memberId;
+          const m = this.getMember(memberId);
+          if (m) {
+            const status = m.getStatus();
+            try {
+              fs.writeFileSync(
+                path.join(this.runDir, `${memberId}.json`),
+                JSON.stringify({
+                  id: status.id,
+                  model: status.model,
+                  state: status.state,
+                  output: status.output,
+                  error: status.error,
+                  stderr: status.stderr,
+                  durationMs: status.durationMs,
+                  stats: status.stats,
+                }, null, 2),
+              );
+            } catch {}
+          }
+
+          if (this.ttfrMs === undefined) {
+            this.ttfrMs = Date.now() - this.startedAt;
+          }
         }
 
         // Check if council is complete after each member event

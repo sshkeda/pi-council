@@ -123,7 +123,9 @@ export default function (pi: ExtensionAPI) {
           const tokensLine = totalTokens > 0 ? `\n- total tokens: ${totalTokens}` : "";
           const ttfrLine = result.ttfrMs ? `\n- time to first result: ${(result.ttfrMs / 1000).toFixed(1)}s` : "";
 
-          const header = [
+          // Only send summary metadata — individual results were already
+          // delivered as intermediates. Full output is in results.json/md.
+          const summary = [
             `🏛️ All ${result.members.length} council members responded for: "${result.prompt}"`,
             ``,
             `Summary:`,
@@ -131,19 +133,14 @@ export default function (pi: ExtensionAPI) {
             `- succeeded: ${succeeded}`,
             `- failed: ${failedCount}`,
             `- total duration: ${(totalDuration / 1000).toFixed(1)}s${ttfrLine}${costLine}${tokensLine}`,
+            ``,
+            `Full results: ${council.getRunDir()}/results.md`,
           ].join("\n");
-
-          const summary = result.members
-            .map((m) => {
-              const icon = m.state === "done" ? "✅" : "❌";
-              return `## ${icon} ${m.id.toUpperCase()} (${m.model.model})\n\n${m.output || m.error || "(no output)"}`;
-            })
-            .join("\n\n---\n\n");
 
           pi.sendMessage(
             {
               customType: "council-result",
-              content: `${header}\n\n${summary}`,
+              content: summary,
               display: true,
             },
             { deliverAs: "followUp", triggerTurn: true },

@@ -63,7 +63,13 @@ export default function (pi: ExtensionAPI) {
         if (event.type === "member_done" || event.type === "member_failed") {
           finishedCount++;
           const totalMembers = council.getMembers().length;
-          ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label}: ${finishedCount}/${totalMembers} done`);
+          // Show per-member status: ✅ done, 🔄 running
+          const memberIcons = council.getMembers().map(m => {
+            const s = m.getStatus();
+            const icon = s.state === "done" ? "✅" : s.state === "failed" || s.state === "cancelled" ? "❌" : "🔄";
+            return `${icon} ${s.id}`;
+          }).join("  ");
+          ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label} — ${memberIcons}`);
 
           if (isInteractive) {
             const memberId = (event as { memberId: string }).memberId;

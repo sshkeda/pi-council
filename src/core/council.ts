@@ -98,7 +98,7 @@ export class Council {
 
         // On member completion: write per-member result to disk, track TTFR
         if (event.type === "member_done" || event.type === "member_failed") {
-          const memberId = (event as { memberId: string }).memberId;
+          const memberId = "memberId" in event ? String(event.memberId) : "";
           const m = this.getMember(memberId);
           if (m) {
             const status = m.getStatus();

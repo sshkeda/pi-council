@@ -372,12 +372,17 @@ export class CouncilMember {
   private handleRpcEvent(event: RpcEvent): void {
     // Handle command responses
     if (event.type === "response") {
-      const resp = event as unknown as RpcResponse;
-      const id = (event as { id?: string }).id;
+      const id = typeof event.id === "string" ? event.id : undefined;
       if (id && this.pendingResponses.has(id)) {
         const pending = this.pendingResponses.get(id)!;
         this.pendingResponses.delete(id);
-        pending.resolve(resp);
+        pending.resolve({
+          type: "response",
+          command: String(event.command ?? ""),
+          success: !!event.success,
+          error: typeof event.error === "string" ? event.error : undefined,
+          data: event.data,
+        });
       }
       return;
     }
@@ -402,26 +407,29 @@ export class CouncilMember {
         break;
 
       case "message_update": {
-        const ame = event.assistantMessageEvent as { type: string; delta?: string } | undefined;
-        if (ame?.type === "text_delta" && ame.delta) {
-          this.output += ame.delta;
-          this.emit({ type: "member_output", memberId: this.id, delta: ame.delta });
+        const ame = event.assistantMessageEvent;
+        if (ame && typeof ame === "object" && "type" in ame && "delta" in ame) {
+          if (ame.type === "text_delta" && typeof ame.delta === "string") {
+            const delta = ame.delta;
+            this.output += delta;
+            this.emit({ type: "member_output", memberId: this.id, delta });
+          }
         }
         break;
       }
 
       case "tool_execution_start": {
         this.toolEvents.push({ ...event });
-        const toolName = event.toolName as string;
-        const args = event.args as Record<string, unknown>;
+        const toolName = String(event.toolName ?? "");
+        const args = event.args ?? {};
         this.emit({ type: "member_tool_start", memberId: this.id, toolName, args });
         break;
       }
 
       case "tool_execution_end": {
         this.toolEvents.push({ ...event });
-        const toolName = event.toolName as string;
-        const isError = event.isError as boolean;
+        const toolName = String(event.toolName ?? "");
+        const isError = !!event.isError;
         this.emit({ type: "member_tool_end", memberId: this.id, toolName, isError });
         break;
       }

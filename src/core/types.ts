@@ -109,7 +109,7 @@ export interface CouncilResult {
 export type CouncilEvent =
   | { type: "member_started"; memberId: string; model: ModelSpec }
   | { type: "member_output"; memberId: string; delta: string }
-  | { type: "member_tool_start"; memberId: string; toolName: string; args: Record<string, unknown> }
+  | { type: "member_tool_start"; memberId: string; toolName: string; args: unknown }
   | { type: "member_tool_end"; memberId: string; toolName: string; isError: boolean }
   | { type: "member_done"; memberId: string; output: string }
   | { type: "member_failed"; memberId: string; error: string }

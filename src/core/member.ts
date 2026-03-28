@@ -43,7 +43,7 @@ export class CouncilMember {
     reject: (err: Error) => void;
   }>();
   private responseIdCounter = 0;
-  private sessionStats: { tokens: { input: number; output: number; total: number }; cost: number } | null = null;
+  private sessionStats: unknown = null;
   private toolEvents: unknown[] = [];
 
   constructor(id: string, model: ModelSpec) {
@@ -228,24 +228,14 @@ export class CouncilMember {
   }
 
   /**
-   * Get the cached session stats (captured on agent_end).
+   * Get session stats (tokens, cost) via pi's get_session_stats RPC.
+   * Returns raw pi response data, or null if unavailable.
    */
-  getCachedStats(): { tokens: { input: number; output: number; total: number }; cost: number } | null {
-    return this.sessionStats;
-  }
-
-  /**
-   * Get session stats (tokens, cost) via RPC get_session_stats.
-   * Returns null if the member is not alive or the command fails.
-   */
-  async getSessionStats(): Promise<{ tokens: { input: number; output: number; total: number }; cost: number } | null> {
+  private async getSessionStats(): Promise<unknown> {
     try {
       if (!this.child?.stdin?.writable) return null;
       const resp = await this.sendRpcCommand({ type: "get_session_stats" }, 5000);
-      if (resp.success && resp.data) {
-        return resp.data as { tokens: { input: number; output: number; total: number }; cost: number };
-      }
-      return null;
+      return resp.success && resp.data ? resp.data : null;
     } catch {
       return null;
     }

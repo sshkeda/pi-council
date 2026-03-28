@@ -1,17 +1,20 @@
-# pi-council v2 Improvement Ideas
+# pi-council v2 — Done
 
-## Done ✅ (213 tests)
-- RPC-based members, steer/abort follow-ups, cancel, observability
-- Docker sandbox, streaming partial responses, per-model prompts
-- Config file, CLI E2E, extension integration tests
-- Cost tracking (get_session_stats), ground truth artifacts
-- --json flag for ask and status, SIGINT handler
+## Shipped ✅
+- RPC-based members with bidirectional communication (pi --mode rpc)
+- Follow-ups: steer (queue after tool call) + abort (interrupt immediately)
+- Cancel individual member or entire council
+- Full observability: status, stream, stderr, events, cost/tokens, TTFR
+- Per-model system prompt overrides
+- Config file (~/.pi-council/config.json) for custom models
+- --json flag for all CLI commands (ask, status, list, results)
+- SIGINT clean shutdown
+- Docker sandbox testing (--network none, non-root)
+- Extension integration (5 tools: spawn_council, council_followup, cancel_council, council_status, read_stream)
+- Unbiased prompting guidelines in skill file
+- Cost tracking via get_session_stats RPC
+- Agreement snapshot in intermediate delivery
 
-## Next up
-- **list --json** — structured JSON for list command
-- **results --json** — structured JSON for results command
-- **TTFR tracking** — time-to-first-result in CouncilResult
-- **Council.toJSON()** — serializable snapshot for debugging
-
-## Future
-- **2-model escalation** — start with 2, add 3rd if they disagree
+## If needed later
+- 2-model escalation — start with 2, add 3rd if they disagree
+- Watch live streaming — stream partial output to terminal as members produce text

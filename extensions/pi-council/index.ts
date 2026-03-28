@@ -311,10 +311,17 @@ export default function (pi: ExtensionAPI) {
         "",
         ...status.members.map((m) => {
           const icon = m.state === "done" ? "✅" : m.state === "running" ? "🔄" : "❌";
-          const duration = m.durationMs ? ` (${(m.durationMs / 1000).toFixed(1)}s)` : "";
-          const errMsg = m.error ? ` — ${m.error}` : "";
-          const outputPreview = m.output ? ` — ${m.output.slice(0, 100)}...` : "";
-          return `${icon} ${m.id} (${m.model.model}): ${m.state}${duration}${errMsg}${outputPreview}`;
+          const elapsed = m.durationMs
+            ? ` (${(m.durationMs / 1000).toFixed(1)}s)`
+            : m.state === "running"
+              ? ` (${((Date.now() - m.startedAt) / 1000).toFixed(0)}s elapsed)`
+              : "";
+          const streaming = m.isStreaming ? " [streaming]" : m.state === "running" ? " [waiting]" : "";
+          const errMsg = m.error ? `\n    error: ${m.error}` : "";
+          const stderrMsg = m.stderr ? `\n    stderr: ${m.stderr.slice(0, 200)}` : "";
+          const outputLen = m.output ? `\n    output: ${m.output.length} chars` : "\n    output: (none)";
+          const outputPreview = m.output ? `\n    preview: ${m.output.slice(0, 120).replace(/\n/g, " ")}` : "";
+          return `${icon} ${m.id} (${m.model.model}): ${m.state}${elapsed}${streaming}${errMsg}${stderrMsg}${outputLen}${outputPreview}`;
         }),
       ];
 
@@ -346,12 +353,23 @@ export default function (pi: ExtensionAPI) {
         const member = council.getMember(params.memberId)!;
         const status = member.getStatus();
 
+        const elapsed = status.durationMs
+          ? `${(status.durationMs / 1000).toFixed(1)}s`
+          : status.state === "running"
+            ? `${((Date.now() - status.startedAt) / 1000).toFixed(0)}s elapsed`
+            : "";
+
+        const sections = [
+          `## ${params.memberId.toUpperCase()} (${status.model.model}) — ${status.state}${elapsed ? ` (${elapsed})` : ""}`,
+          status.isStreaming ? `\n*Currently streaming*` : "",
+          status.stderr ? `\n### stderr\n\`\`\`\n${status.stderr}\n\`\`\`` : "",
+          status.error ? `\n### error\n${status.error}` : "",
+          `\n### output (${output.length} chars)\n${output || "(no output yet)"}`,
+        ].filter(Boolean).join("\n");
+
         return {
-          content: [{
-            type: "text" as const,
-            text: `## ${params.memberId.toUpperCase()} (${status.model.model}) — ${status.state}\n\n${output || "(no output yet)"}`,
-          }],
-          details: { memberId: params.memberId, state: status.state, runId: council.runId } as Record<string, unknown>,
+          content: [{ type: "text" as const, text: sections }],
+          details: { memberId: params.memberId, state: status.state, runId: council.runId, isStreaming: status.isStreaming, outputLength: output.length, hasStderr: status.stderr.length > 0 } as Record<string, unknown>,
         };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

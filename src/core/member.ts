@@ -369,21 +369,33 @@ export class CouncilMember {
     }
   }
 
+  private warn(msg: string): void {
+    const line = `[council:${this.id}] ${msg}`;
+    this.stderrOutput += line + "\n";
+    process.stderr.write(line + "\n");
+  }
+
   private handleRpcEvent(event: RpcEvent): void {
     // Handle command responses
     if (event.type === "response") {
       const id = typeof event.id === "string" ? event.id : undefined;
-      if (id && this.pendingResponses.has(id)) {
-        const pending = this.pendingResponses.get(id)!;
-        this.pendingResponses.delete(id);
-        pending.resolve({
-          type: "response",
-          command: String(event.command ?? ""),
-          success: !!event.success,
-          error: typeof event.error === "string" ? event.error : undefined,
-          data: event.data,
-        });
+      if (!id) {
+        this.warn(`response missing id: ${JSON.stringify(event)}`);
+        return;
       }
+      const pending = this.pendingResponses.get(id);
+      if (!pending) {
+        this.warn(`response for unknown id: ${id}`);
+        return;
+      }
+      this.pendingResponses.delete(id);
+      pending.resolve({
+        type: "response",
+        command: String(event.command ?? ""),
+        success: !!event.success,
+        error: typeof event.error === "string" ? event.error : undefined,
+        data: event.data,
+      });
       return;
     }
 
@@ -408,18 +420,23 @@ export class CouncilMember {
 
       case "message_update": {
         const ame = event.assistantMessageEvent;
-        if (ame && typeof ame === "object" && "type" in ame && "delta" in ame) {
-          if (ame.type === "text_delta" && typeof ame.delta === "string") {
-            const delta = ame.delta;
-            this.output += delta;
-            this.emit({ type: "member_output", memberId: this.id, delta });
-          }
+        if (!ame || typeof ame !== "object" || !("type" in ame) || !("delta" in ame)) {
+          this.warn(`message_update with unexpected shape: ${JSON.stringify(event).slice(0, 200)}`);
+          break;
+        }
+        if (ame.type === "text_delta" && typeof ame.delta === "string") {
+          const delta = ame.delta;
+          this.output += delta;
+          this.emit({ type: "member_output", memberId: this.id, delta });
         }
         break;
       }
 
       case "tool_execution_start": {
         this.toolEvents.push({ ...event });
+        if (typeof event.toolName !== "string") {
+          this.warn(`tool_execution_start missing toolName: ${JSON.stringify(event).slice(0, 200)}`);
+        }
         const toolName = String(event.toolName ?? "");
         const args = event.args ?? {};
         this.emit({ type: "member_tool_start", memberId: this.id, toolName, args });
@@ -428,11 +445,18 @@ export class CouncilMember {
 
       case "tool_execution_end": {
         this.toolEvents.push({ ...event });
+        if (typeof event.toolName !== "string") {
+          this.warn(`tool_execution_end missing toolName: ${JSON.stringify(event).slice(0, 200)}`);
+        }
         const toolName = String(event.toolName ?? "");
         const isError = !!event.isError;
         this.emit({ type: "member_tool_end", memberId: this.id, toolName, isError });
         break;
       }
+
+      default:
+        // Unknown event type from pi — log so we know about protocol changes
+        break;
     }
   }
 }

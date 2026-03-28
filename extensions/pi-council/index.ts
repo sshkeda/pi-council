@@ -35,6 +35,7 @@ export default function (pi: ExtensionAPI) {
       "The point is surfacing disagreement, not consensus. Pay attention to the dissenter.",
       "IMPORTANT: When formulating the question, strip your own conclusions and opinions. Present context neutrally. Do NOT lead the models toward a particular answer. The value comes from unbiased, independent perspectives.",
       "Do NOT include your own analysis or preferred solution in the question. Instead, present the raw situation and ask for their assessment.",
+      "Do NOT poll council_status or read_stream after spawning. Results are auto-delivered as followUp messages — just wait for them. Only use council_status/read_stream if something seems stuck or the user explicitly asks.",
     ],
     parameters: Type.Object({
       question: Type.String({ description: "Question for the council. Frame it neutrally — do not inject your own opinions or conclusions." }),
@@ -177,6 +178,10 @@ export default function (pi: ExtensionAPI) {
         }
 
         council.spawn(spawnOptions as any);
+
+        // Set status widget immediately so it shows up right away
+        const memberIcons = council.getMembers().map(m => `🔄 ${m.id}`).join("  ");
+        ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label} — ${memberIcons} (${council.runId})`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return {
@@ -296,8 +301,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "council_status",
     label: "Council Status",
-    description: "Get detailed status of a council and all its members.",
-    promptSnippet: "Check council status — see which members are running, done, or failed.",
+    description:
+      "Get detailed status of a council and all its members. " +
+      "Only use when something seems stuck or the user explicitly asks — results are auto-delivered, so polling is unnecessary.",
+    promptSnippet: "Check council status — only when stuck or user asks. Do NOT poll after spawning.",
     parameters: Type.Object({
       runId: Type.Optional(Type.String({ description: "Run ID. Omit for most recent." })),
     }),
@@ -341,8 +348,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "read_stream",
     label: "Read Council Stream",
-    description: "Read the accumulated output of a specific council member.",
-    promptSnippet: "Read a council member's full output stream.",
+    description:
+      "Read the accumulated output of a specific council member. " +
+      "Only use when you need to re-read a result or the user asks — output is auto-delivered via followUp messages.",
+    promptSnippet: "Read a council member's full output stream. Only use to re-read — output is auto-delivered.",
     parameters: Type.Object({
       memberId: Type.String({ description: 'Member ID (e.g. "claude", "gpt")' }),
       runId: Type.Optional(Type.String({ description: "Run ID. Omit for most recent." })),

@@ -5,7 +5,7 @@ Multi-model council tool. Spawns different AI models in parallel for independent
 ## Architecture
 
 Each council member is a `pi --mode rpc` process with bidirectional stdin/stdout communication.
-Core: `src/core/council.ts` (Council manager), `src/core/member.ts` (RPC member), `src/core/types.ts`, `src/core/profiles.ts`.
+Core: `src/core/council.ts` (Council manager), `src/core/member.ts` (RPC member), `src/core/types.ts`, `src/core/profiles.ts`, `src/core/config.ts`.
 Extension: `extensions/pi-council/index.ts` (spawn_council, council_followup, cancel_council, council_status, read_stream).
 Tests: `tests/council.test.mjs` (deterministic tests using `tests/mock-pi.mjs`).
 
@@ -13,25 +13,16 @@ Tests: `tests/council.test.mjs` (deterministic tests using `tests/mock-pi.mjs`).
 
 ```bash
 pi-council ask "your question"
+pi-council ask --models claude,grok "your question"
+pi-council ask --json "your question"
 pi-council spawn "your question"
 pi-council status
+pi-council status --json
 pi-council watch
-pi-council cleanup
+pi-council results
 pi-council list
-```
-
-## Select models
-
-```bash
-pi-council ask --models claude,gpt "your question"
-```
-
-## Profiles
-
-```bash
-pi-council ask --profile fast "quick question"   # 2 models
-pi-council ask --profile read-only "review this"  # no bash
-pi-council ask --profile max "deep analysis"      # all 4, default
+pi-council list --json
+pi-council cleanup
 ```
 
 Available models: `claude`, `gpt`, `gemini`, `grok`
@@ -43,3 +34,5 @@ Available models: `claude`, `gpt`, `gemini`, `grok`
 - The orchestrator can send follow-ups (steer/abort) mid-flight
 - The point is surfacing **disagreement**, not consensus
 - The orchestrator should prompt neutrally — no bias injection
+- Per-member results written to disk as each member finishes
+- Config customizable via `~/.pi-council/config.json`

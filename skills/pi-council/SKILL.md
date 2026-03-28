@@ -31,21 +31,14 @@ models toward your preferred answer, you defeat the purpose.
 
 The differing opinions ARE the product. They give you signal you can't get from a single model.
 
-## Pi extension (recommended)
-
-If pi-council is installed as a pi package, you have these tools:
+## Pi extension tools
 
 ### spawn_council
-Spawn a council. Returns immediately — results auto-delivered.
-
-```
-Use spawn_council to get opinions on whether to refactor this module
-```
+Spawn a council. Returns immediately — results auto-delivered as each member finishes.
 
 Parameters:
 - `question` (required): The question for the council. Frame it neutrally.
 - `models` (optional): Array of model IDs e.g. `["claude", "grok"]`. Default: all 4.
-- `profile` (optional): Spawn profile — `"max"` (default), `"fast"`, `"read-only"`.
 
 ### council_followup
 Send a follow-up to running council members.
@@ -60,37 +53,23 @@ Parameters:
 Cancel a running council or specific members.
 
 ### council_status
-Get detailed status of all council members.
+Get detailed status of all council members — state, elapsed time, streaming status, stderr, output length.
 
 ### read_stream
-Read the accumulated output of a specific council member.
-
-## CLI usage
-
-```bash
-pi-council ask "Should I refactor this module into microservices?"
-pi-council spawn "Analyze whether MSFT is oversold"
-pi-council status
-pi-council watch
-pi-council results
-pi-council cleanup
-pi-council list
-```
-
-### Select specific models
-```bash
-pi-council ask --models claude,grok "Review this PR for security issues"
-```
+Read a member's full accumulated output, stderr, and debug info.
 
 ## Results location
-All run artifacts are stored in `~/.pi-council/runs/<run-id>/`:
-- `meta.json` — run metadata
-- `results.json` — structured results
-- `results.md` — human-readable results
+All run artifacts at `~/.pi-council/runs/<run-id>/`:
+- `meta.json` — run metadata (prompt, models, startedAt)
+- `prompt.txt` — raw prompt text
+- `<member>.json` — per-member result (written as each finishes)
+- `results.json` — combined result (written when all done)
+- `results.md` — human-readable combined result
 
 ## Key design
 - Each model is a separate pi instance with independent context via RPC
 - Models do their own research — they are NOT given the same evidence
 - The orchestrator can send follow-ups (steer/abort) to redirect members mid-flight
 - The point is surfacing **disagreement**, not consensus
-- The orchestrator (you) synthesizes the final answer from diverse perspectives
+- The orchestrator synthesizes the final answer from diverse perspectives
+- Per-member results are written to disk immediately — they survive context compaction

@@ -2,7 +2,7 @@
  * pi-council extension — registers council tools for the orchestrator.
  *
  * Tools:
- *   spawn_council    — spawn a new council (profile or custom)
+ *   spawn_council    — spawn a new council
  *   council_followup — send abort/steer to running members
  *   cancel_council   — cancel individual member or entire council
  *   council_status   — get status of all members
@@ -71,7 +71,6 @@ export default function (pi: ExtensionAPI) {
               const outputLen = status.output?.length ?? 0;
               const memberFile = `${council.getRunDir()}/${memberId}.json`;
 
-              // Compact notification — full output is on disk
               const lines = [
                 `🏛️ ${icon} ${status.id.toUpperCase()} (${status.model.model}) — ${finishedCount}/${totalMembers} done${duration ? ` (${duration})` : ""}`,
                 ``,
@@ -80,6 +79,8 @@ export default function (pi: ExtensionAPI) {
                   : status.error
                     ? `Error: ${status.error}`
                     : "(no output)",
+                ``,
+                `Full result: ${memberFile}`,
               ];
 
               pi.sendMessage(

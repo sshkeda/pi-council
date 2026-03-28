@@ -30,12 +30,11 @@ When installed as a pi package, the orchestrator gets these tools:
 Spawn models in parallel. Returns immediately.
 
 ```
-spawn_council({ question: "Should we use microservices?", profile: "max" })
+spawn_council({ question: "Should we use microservices?" })
 ```
 
 - `question` — The question, framed neutrally
 - `models` — Optional: `["claude", "grok"]`
-- `profile` — `"max"` (4 models, bash+read), `"fast"` (2 models), `"read-only"`
 
 ### `council_followup`
 Send a follow-up to running members.
@@ -52,21 +51,22 @@ council_followup({ type: "abort", message: "New info: the budget changed", membe
 Kill members or entire council.
 
 ### `council_status`
-Get per-member state: running, done, failed, output preview.
+Get per-member state: running, done, failed, elapsed time, streaming status, stderr, output preview.
 
 ### `read_stream`
-Read a member's full accumulated output.
+Read a member's full accumulated output, stderr, and debug info.
 
 ## CLI
 
 ```bash
 pi-council ask "Should I refactor this module?"
-pi-council ask --profile fast --models claude,grok "Quick review"
+pi-council ask --models claude,grok "Quick review"
+pi-council ask --json "Structured output"
 pi-council spawn "Analyze MSFT"
-pi-council status
+pi-council status [--json]
+pi-council list [--json]
+pi-council results [--json]
 pi-council watch
-pi-council results
-pi-council list
 pi-council cleanup
 ```
 
@@ -87,23 +87,39 @@ Orchestrator                     Council Members (background)
     ├── council_followup(steer) ────►│ (queued for after tool call)
     ├── council_followup(abort) ────►│ (immediate interrupt)
     │                                │
-    │◄─── results (triggerTurn:false)│ (no foreground disruption)
-    │◄─── final result ─────────────│
+    │◄─── member result (each) ─────│ (triggerTurn: false)
+    │◄─── summary (all done) ───────│ (triggerTurn: true)
 ```
 
 ## Results
 
 Artifacts at `~/.pi-council/runs/<run-id>/`:
 - `meta.json` — run metadata
-- `results.json` — structured results
-- `results.md` — human-readable results
+- `prompt.txt` — raw prompt
+- `<member>.json` — per-member result (written immediately on completion)
+- `results.json` — combined structured results
+- `results.md` — human-readable combined results
+
+## Configuration
+
+Custom models and system prompt via `~/.pi-council/config.json`:
+
+```json
+{
+  "models": [
+    { "id": "claude", "provider": "anthropic", "model": "claude-opus-4-6" },
+    { "id": "gpt", "provider": "openai-codex", "model": "gpt-5.4" }
+  ],
+  "systemPrompt": "You are a council member. Be concise."
+}
+```
 
 ## Development
 
 ```bash
 npm run build        # TypeScript compile
 npm run dev          # Run CLI via tsx
-./autoresearch.sh    # Build + run test suite
+./autoresearch.sh    # Build + run test suite in Docker sandbox
 ```
 
 ## License

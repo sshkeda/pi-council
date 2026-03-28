@@ -43,12 +43,16 @@ export default function (pi: ExtensionAPI) {
           description: 'Model IDs to use (default: all 4). e.g. ["claude", "grok"]',
         }),
       ),
+      label: Type.Optional(
+        Type.String({ description: 'Short label for this council run (shown in status widget). e.g. "architecture review"' }),
+      ),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const isInteractive = ctx.hasUI;
 
       const council = new Council(params.question);
+      const label = params.label ?? params.question.slice(0, 40) + (params.question.length > 40 ? "..." : "");
       registry.add(council);
 
       let finishedCount = 0;
@@ -59,7 +63,7 @@ export default function (pi: ExtensionAPI) {
         if (event.type === "member_done" || event.type === "member_failed") {
           finishedCount++;
           const totalMembers = council.getMembers().length;
-          ctx.ui.setStatus("council", `🏛️ Council: ${finishedCount}/${totalMembers} done`);
+          ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label}: ${finishedCount}/${totalMembers} done`);
 
           if (isInteractive) {
             const memberId = (event as { memberId: string }).memberId;
@@ -98,7 +102,7 @@ export default function (pi: ExtensionAPI) {
         // Deliver final combined result
         if (event.type === "council_complete" && isInteractive && !delivered) {
           delivered = true;
-          ctx.ui.setStatus("council", undefined);
+          ctx.ui.setStatus(`council-${council.runId}`, undefined);
           // Clean up registry to prevent memory leak — keep last 5 runs
           const all = registry.list();
           if (all.length > 5) {
@@ -199,7 +203,7 @@ export default function (pi: ExtensionAPI) {
           {
             type: "text",
             text:
-              `Council spawned: ${memberNames} (run: ${council.runId})\n` +
+              `Council spawned: ${memberNames} (run: ${council.runId}, label: ${label})\n` +
               `Results will be delivered automatically when all agents finish.\n` +
               `Continue with your other work.`,
           },

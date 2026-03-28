@@ -69,7 +69,7 @@ export default function (pi: ExtensionAPI) {
             const icon = s.state === "done" ? "✅" : s.state === "failed" || s.state === "cancelled" ? "❌" : "🔄";
             return `${icon} ${s.id}`;
           }).join("  ");
-          ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label} — ${memberIcons}`);
+          ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label} — ${memberIcons} (${council.runId})`);
 
           if (isInteractive) {
             const memberId = (event as { memberId: string }).memberId;

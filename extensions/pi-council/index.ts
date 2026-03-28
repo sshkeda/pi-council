@@ -100,7 +100,7 @@ export default function (pi: ExtensionAPI) {
                   content: lines.join("\n"),
                   display: true,
                 },
-                { deliverAs: "followUp", triggerTurn: false },
+                { deliverAs: "steer", triggerTurn: false },
               );
             }
           }
@@ -149,7 +149,7 @@ export default function (pi: ExtensionAPI) {
               content: summary,
               display: true,
             },
-            { deliverAs: "followUp", triggerTurn: true },
+            { deliverAs: "steer", triggerTurn: true },
           );
         }
       });

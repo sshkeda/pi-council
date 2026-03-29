@@ -30,6 +30,7 @@ export class CouncilMember {
   private child: ChildProcess | null = null;
   private state: MemberState = "spawning";
   private output = "";
+  private thinking = "";
   private stderrOutput = "";
   private error: string | undefined;
   private isStreaming = false;
@@ -43,6 +44,13 @@ export class CouncilMember {
     reject: (err: Error) => void;
   }>();
   private responseIdCounter = 0;
+  /** When true, the next agent_end is from an abort that will be followed by a re-prompt.
+   *  We suppress the done transition so the re-prompt's agent_end is the real completion. */
+  private suppressNextAgentEnd = false;
+  /** Resolves when the suppressed agent_end fires, so abort() can await it. */
+  /** Serializes abort calls — only one abort+redirect can run at a time. */
+  private abortLock: Promise<void> = Promise.resolve();
+  private onceAgentEndSuppressed: (() => void) | undefined;
   private sessionStats: unknown = null;
   private toolEvents: unknown[] = [];
 
@@ -149,8 +157,10 @@ export class CouncilMember {
    */
   async steer(message: string): Promise<void> {
     this.ensureAlive();
-    // Re-activate if done — the process is still alive, we're sending more work
-    if (this.state === "done") this.state = "running";
+    // Only meaningful when actively streaming — pi queues it between tool calls.
+    // For done members, send it but don't change state. If pi ignores it
+    // (agent idle), nothing happens. Don't set state to "running" or the
+    // member gets stuck waiting for an agent_end that never comes.
     await this.sendRpcCommand({ type: "steer", message });
   }
 
@@ -160,20 +170,57 @@ export class CouncilMember {
    */
   async followUp(message: string): Promise<void> {
     this.ensureAlive();
-    if (this.state === "done") this.state = "running";
     await this.sendRpcCommand({ type: "follow_up", message });
   }
 
   /**
    * Abort the current operation and optionally send a new prompt.
+   * When a newPrompt is provided, the abort's agent_end is suppressed —
+   * the member stays "running" and the re-prompt's agent_end becomes
+   * the real completion. Output/thinking are reset for the fresh turn.
    */
   async abort(newPrompt?: string): Promise<void> {
     this.ensureAlive();
-    await this.sendRpcCommand({ type: "abort" });
     if (newPrompt) {
-      // Wait a tick for abort to process, then send new prompt
-      await new Promise((r) => setTimeout(r, 50));
-      await this.sendRpcCommand({ type: "prompt", message: newPrompt });
+      // Serialize: wait for any in-flight abort to finish first.
+      // Two concurrent abort+redirects would clobber each other's callbacks.
+      const prev = this.abortLock;
+      let unlock: () => void;
+      this.abortLock = new Promise<void>((r) => { unlock = r; });
+      await prev;
+
+      try {
+        if (this.state === "running") {
+          this.suppressNextAgentEnd = true;
+          const abortDone = new Promise<void>((resolve) => {
+            this.onceAgentEndSuppressed = resolve;
+          });
+          await this.sendRpcCommand({ type: "abort" });
+          await abortDone;
+        } else {
+          await this.sendRpcCommand({ type: "abort" });
+        }
+        this.output = "";
+        this.thinking = "";
+        const prevState = this.state;
+        try {
+          this.state = "running";
+          this.finishedAt = undefined;
+          await this.sendRpcCommand({ type: "prompt", message: newPrompt });
+        } catch {
+          // Prompt failed (stdin closed, process dead). Restore state and
+          // re-emit done so anything awaiting waitForDone() doesn't hang.
+          this.state = prevState;
+          this.finishedAt = this.finishedAt ?? Date.now();
+          if (prevState === "done") {
+            this.emit({ type: "member_done", memberId: this.id, output: this.output });
+          }
+        }
+      } finally {
+        unlock!();
+      }
+    } else {
+      await this.sendRpcCommand({ type: "abort" });
     }
   }
 
@@ -208,6 +255,7 @@ export class CouncilMember {
       model: this.model,
       state: this.state,
       output: this.output,
+      thinking: this.thinking,
       error: this.error,
       stderr: this.stderrOutput,
       isStreaming: this.isStreaming,
@@ -221,10 +269,17 @@ export class CouncilMember {
   }
 
   /**
-   * Get the accumulated output text.
+   * Get the accumulated text output (excludes thinking).
    */
   getOutput(): string {
     return this.output;
+  }
+
+  /**
+   * Get the accumulated thinking/reasoning content.
+   */
+  getThinking(): string {
+    return this.thinking;
   }
 
   /**
@@ -305,6 +360,57 @@ export class CouncilMember {
   private ensureAlive(): void {
     if (!this.child || (this.state !== "running" && this.state !== "done")) {
       throw new Error(`Member ${this.id} is not alive (state: ${this.state})`);
+    }
+  }
+
+  /**
+   * Extract clean output and thinking from the agent_end event's final message.
+   *
+   * The `messages` field contains the full conversation with properly typed
+   * content blocks (type:"text" vs type:"thinking"). We use the last assistant
+   * message to set authoritative output/thinking, overriding whatever was
+   * accumulated from streaming deltas.
+   *
+   * This fixes providers like OpenRouter that may send thinking tokens as
+   * text_delta events during streaming — the final message still has the
+   * correct content block types.
+   */
+  private extractFromFinalMessage(event: RpcEvent): void {
+    const messages = event.messages;
+    if (!Array.isArray(messages)) return;
+
+    // Walk backwards to find the last assistant message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as Record<string, unknown> | undefined;
+      if (!msg || msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+
+      const textParts: string[] = [];
+      const thinkingParts: string[] = [];
+
+      for (const block of msg.content as Record<string, unknown>[]) {
+        if (!block || typeof block !== "object") continue;
+        if (block.type === "text" && typeof block.text === "string" && block.text.length > 0) {
+          textParts.push(block.text);
+        } else if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.length > 0) {
+          thinkingParts.push(block.thinking);
+        }
+      }
+
+      // Override streaming-accumulated values with authoritative content blocks
+      if (textParts.length > 0) {
+        this.output = textParts.join("\n\n");
+      }
+      if (thinkingParts.length > 0) {
+        this.thinking = thinkingParts.join("\n\n");
+      }
+      // If the final message had thinking blocks but NO text blocks, the
+      // delta-accumulated output likely contains thinking content that leaked
+      // through as text_delta (e.g. OpenRouter/Gemini). Clear it — the
+      // thinking field already has the content.
+      if (thinkingParts.length > 0 && textParts.length === 0) {
+        this.output = "";
+      }
+      break;
     }
   }
 
@@ -407,6 +513,21 @@ export class CouncilMember {
 
       case "agent_end":
         this.isStreaming = false;
+        // If this agent_end is from an abort that will be followed by a
+        // re-prompt, suppress the done transition. The re-prompt will
+        // produce its own agent_end which becomes the real completion.
+        if (this.suppressNextAgentEnd) {
+          this.suppressNextAgentEnd = false;
+          const cb = this.onceAgentEndSuppressed;
+          this.onceAgentEndSuppressed = undefined;
+          cb?.();
+          break;
+        }
+        // Extract clean output and thinking from the final message's typed
+        // content blocks. This is the authoritative source — it properly
+        // separates text from thinking even when streaming deltas were
+        // misclassified (e.g. OpenRouter sending thinking as text_delta).
+        this.extractFromFinalMessage(event);
         // Capture cost/token stats
         this.captureStats().catch(() => {});
         // Mark as done — but keep process alive for steer/followUp.
@@ -420,14 +541,16 @@ export class CouncilMember {
 
       case "message_update": {
         const ame = event.assistantMessageEvent;
-        if (!ame || typeof ame !== "object" || !("type" in ame) || !("delta" in ame)) {
-          this.warn(`message_update with unexpected shape: ${JSON.stringify(event).slice(0, 200)}`);
-          break;
-        }
-        if (ame.type === "text_delta" && typeof ame.delta === "string") {
-          const delta = ame.delta;
-          this.output += delta;
-          this.emit({ type: "member_output", memberId: this.id, delta });
+        if (ame && typeof ame === "object" && "type" in ame) {
+          if (ame.type === "text_delta" && "delta" in ame && typeof ame.delta === "string") {
+            this.output += ame.delta;
+            this.emit({ type: "member_output", memberId: this.id, delta: ame.delta });
+          } else if (ame.type === "thinking_delta" && "delta" in ame && typeof ame.delta === "string") {
+            this.thinking += ame.delta;
+          }
+          // All other event types (text_start, text_end, thinking_start,
+          // thinking_end, toolcall_*, start, done, error) are silently
+          // ignored — we use agent_end's final message for authoritative output.
         }
         break;
       }

@@ -51,6 +51,11 @@ export class CouncilMember {
   /** Serializes abort calls — only one abort+redirect can run at a time. */
   private abortLock: Promise<void> = Promise.resolve();
   private onceAgentEndSuppressed: (() => void) | undefined;
+  /** Timer for the retry grace window — when we see an error agent_end, we
+   *  wait briefly for auto_retry_start before committing to done. */
+  private retryGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Snapshot of the error agent_end event, held during the grace window. */
+  private pendingErrorEnd: RpcEvent | undefined;
   private sessionStats: unknown = null;
   private toolEvents: unknown[] = [];
 
@@ -237,6 +242,7 @@ export class CouncilMember {
    */
   cancel(): void {
     if (this.child && (this.state === "running" || this.state === "spawning")) {
+      this.clearRetryGrace();
       this.state = "cancelled";
       this.finishedAt = Date.now();
       this.emit({ type: "member_failed", memberId: this.id, error: "cancelled" });
@@ -360,6 +366,31 @@ export class CouncilMember {
   private ensureAlive(): void {
     if (!this.child || (this.state !== "running" && this.state !== "done")) {
       throw new Error(`Member ${this.id} is not alive (state: ${this.state})`);
+    }
+  }
+
+  /**
+   * Check if an agent_end event represents an error that pi might auto-retry.
+   * Looks at the last assistant message's stopReason.
+   */
+  private isErrorAgentEnd(event: RpcEvent): boolean {
+    const messages = event.messages;
+    if (!Array.isArray(messages)) return false;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as Record<string, unknown> | undefined;
+      if (msg?.role === "assistant") {
+        return msg.stopReason === "error";
+      }
+    }
+    return false;
+  }
+
+  /** Cancel any pending retry grace timer. */
+  private clearRetryGrace(): void {
+    if (this.retryGraceTimer) {
+      clearTimeout(this.retryGraceTimer);
+      this.retryGraceTimer = undefined;
+      this.pendingErrorEnd = undefined;
     }
   }
 
@@ -528,14 +559,45 @@ export class CouncilMember {
         // separates text from thinking even when streaming deltas were
         // misclassified (e.g. OpenRouter sending thinking as text_delta).
         this.extractFromFinalMessage(event);
-        // Capture cost/token stats
+
+        // Check if this is an error agent_end that pi might auto-retry.
+        // Pi emits: agent_end(error) → auto_retry_start → agent_start → ... → agent_end(success)
+        // We defer the done transition for a grace window to catch the retry.
+        if (this.state === "running" && this.isErrorAgentEnd(event)) {
+          this.pendingErrorEnd = event;
+          this.retryGraceTimer = setTimeout(() => {
+            // No auto_retry_start arrived — pi isn't retrying.
+            // Commit to done with whatever output the error cycle produced.
+            this.pendingErrorEnd = undefined;
+            this.retryGraceTimer = undefined;
+            this.captureStats().catch(() => {});
+            this.state = "done";
+            this.finishedAt = Date.now();
+            this.emit({ type: "member_done", memberId: this.id, output: this.output });
+          }, 1000);
+          break;
+        }
+
+        // Normal (non-error) agent_end — commit immediately.
         this.captureStats().catch(() => {});
-        // Mark as done — but keep process alive for steer/followUp.
-        // Council calls finish() to close stdin when it's ready.
         if (this.state === "running") {
           this.state = "done";
           this.finishedAt = Date.now();
           this.emit({ type: "member_done", memberId: this.id, output: this.output });
+        }
+        break;
+
+      case "auto_retry_start":
+        // Pi is retrying after an error agent_end. Cancel the grace timer
+        // and stay in "running" state. The retry cycle will produce a fresh
+        // agent_start → streaming → agent_end sequence.
+        if (this.pendingErrorEnd) {
+          clearTimeout(this.retryGraceTimer!);
+          this.pendingErrorEnd = undefined;
+          this.retryGraceTimer = undefined;
+          // Reset output/thinking — the retry produces fresh content.
+          this.output = "";
+          this.thinking = "";
         }
         break;
 

@@ -800,12 +800,10 @@ await test("S10: script brain — ordered responses without manual control", asy
 // S11: Fault injection — flakyBrain, failFirst, errorAfter, failNth, intermittent
 // ═════════════════════════════════════════════════════════════════════
 
-await test("S11: failFirst — council handles initial API errors gracefully", async () => {
+await test("S11: failFirst — member recovers after initial API error with correct output", async () => {
   // Fail first request with 429, then succeed.
-  // Known behavior: pi auto-retry emits two agent_end events. The member
-  // captures the first (error) agent_end and marks done — the retry's
-  // successful agent_end arrives after completion. The key assertion is
-  // that council completes without hanging or crashing.
+  // member.ts defers done on error agent_end, waits for auto_retry_start,
+  // then captures the retry's successful output.
   gw.setBrain(failFirst(1, always(text("Recovered!")), rateLimited(1)));
 
   const c = new Council("failFirst test");
@@ -816,10 +814,12 @@ await test("S11: failFirst — council handles initial API errors gracefully", a
     new Promise((_, rej) => setTimeout(() => rej(new Error("FAILFIRST HUNG")), 30000)),
   ]);
 
-  // Member should complete — either done (possibly empty from error agent_end)
-  // or failed. The important thing: no hang, no crash.
   assert(r.members[0].state === "done" || r.members[0].state === "failed",
     `failFirst state: ${r.members[0].state}`);
+  if (r.members[0].state === "done") {
+    assert(r.members[0].output.includes("Recovered"),
+      `failFirst output should have 'Recovered', got: "${r.members[0].output.slice(0, 100)}"`);
+  }
 });
 
 await test("S11b: failFirst with rateLimited error", async () => {

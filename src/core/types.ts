@@ -15,12 +15,12 @@ export interface Profile {
 }
 
 export interface SpawnOptions {
-  /** Use a named profile */
-  profile?: string;
-  /** Or specify custom models */
-  models?: ModelSpec[];
+  /** Models to spawn */
+  models: ModelSpec[];
   /** Custom system prompt (applied to all members) */
   systemPrompt?: string;
+  /** Thinking/reasoning level: off, minimal, low, medium, high, xhigh */
+  thinking?: string;
   /** Per-model system prompt overrides (key: model id, value: prompt) */
   systemPrompts?: Record<string, string>;
   /** Working directory for agents */

@@ -1,8 +1,8 @@
 /**
- * Built-in spawn profiles.
+ * Built-in defaults for the council system.
  */
 
-import type { Profile, ModelSpec } from "./types.js";
+import type { ModelSpec } from "./types.js";
 
 export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "claude", provider: "anthropic", model: "claude-opus-4-6" },
@@ -11,7 +11,7 @@ export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning" },
 ];
 
-const COUNCIL_SYSTEM_PROMPT = `You are one member of a multi-model council. Multiple AI models have been given the same question independently. Your job is to provide YOUR perspective — do your own research, form your own opinion, and be specific.
+export const COUNCIL_SYSTEM_PROMPT = `You are one member of a multi-model council. Multiple AI models have been given the same question independently. Your job is to provide YOUR perspective — do your own research, form your own opinion, and be specific.
 
 Rules:
 - Work independently. Do NOT try to coordinate with other models.
@@ -19,21 +19,3 @@ Rules:
 - Use your tools to investigate if the question is about code, files, or data.
 - Be concise and specific. Give your actual opinion, not a generic overview.
 - If you disagree with a common assumption, say so clearly and explain why.`;
-
-export const PROFILES: Record<string, Profile> = {
-  max: {
-    name: "max",
-    models: DEFAULT_MODELS,
-    systemPrompt: COUNCIL_SYSTEM_PROMPT,
-  },
-};
-
-export function getProfile(name: string): Profile | undefined {
-  return PROFILES[name];
-}
-
-export function resolveModels(allModels: ModelSpec[], filter?: string[]): ModelSpec[] {
-  if (!filter || filter.length === 0) return allModels;
-  const wanted = new Set(filter.map((s) => s.trim().toLowerCase()));
-  return allModels.filter((m) => wanted.has(m.id.toLowerCase()));
-}

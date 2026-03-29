@@ -34,6 +34,7 @@ export class Council {
   private listeners: EventListener[] = [];
   private runDir: string;
   private ttfrMs: number | undefined;
+  private memberTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   constructor(prompt: string, runId?: string) {
     this.runId = runId ?? generateRunId();
@@ -54,6 +55,7 @@ export class Council {
       cwd,
       piBinary,
       piBinaryArgs,
+      memberTimeoutMs,
     } = options;
 
     // Resolve what to spawn
@@ -110,6 +112,7 @@ export class Council {
                   model: status.model,
                   state: status.state,
                   output: status.output,
+                  thinking: status.thinking,
                   error: status.error,
                   stderr: status.stderr,
                   durationMs: status.durationMs,
@@ -145,6 +148,23 @@ export class Council {
         piBinary,
         piBinaryArgs,
       });
+
+      // Set per-member timeout if configured
+      if (memberTimeoutMs && memberTimeoutMs > 0) {
+        const timer = setTimeout(() => {
+          if (member.isAlive() && !member.hasResult()) {
+            member.cancel();
+          }
+        }, memberTimeoutMs);
+        this.memberTimeouts.set(model.id, timer);
+        // Clear timeout when member finishes naturally
+        member.on((event) => {
+          if (event.type === "member_done" || event.type === "member_failed") {
+            const t = this.memberTimeouts.get(model.id);
+            if (t) { clearTimeout(t); this.memberTimeouts.delete(model.id); }
+          }
+        });
+      }
     }
   }
 
@@ -258,6 +278,7 @@ export class Council {
           model: status.model,
           state: status.state,
           output: status.output,
+          thinking: status.thinking,
           error: status.error,
           durationMs: status.durationMs,
           stats: status.stats,
@@ -328,8 +349,11 @@ export class Council {
       const icon = m.state === "done" ? "✅" : "❌";
       const header = `## ${icon} ${m.id.toUpperCase()} (${m.model.model})`;
       const body = m.output || m.error || "(no output)";
+      const thinkingSection = m.thinking
+        ? `\n\n<details>\n<summary>Thinking (${m.thinking.length} chars)</summary>\n\n${m.thinking}\n\n</details>`
+        : "";
       const duration = m.durationMs ? `\n\n*${(m.durationMs / 1000).toFixed(1)}s*` : "";
-      return `${header}\n\n${body}${duration}`;
+      return `${header}\n\n${body}${thinkingSection}${duration}`;
     });
 
     return `# Council Results\n\n**Prompt:** ${result.prompt}\n\n---\n\n${sections.join("\n\n---\n\n")}`;

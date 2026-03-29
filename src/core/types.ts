@@ -29,6 +29,8 @@ export interface SpawnOptions {
   piBinary?: string;
   /** Extra args to prepend (e.g. ["node"] when piBinary is a .mjs script) */
   piBinaryArgs?: string[];
+  /** Per-member timeout in ms. Members exceeding this are cancelled. Default: none. */
+  memberTimeoutMs?: number;
 }
 
 export type MemberState =
@@ -43,8 +45,10 @@ export interface MemberStatus {
   id: string;
   model: ModelSpec;
   state: MemberState;
-  /** Accumulated text output so far */
+  /** Accumulated text output (excludes thinking/reasoning content) */
   output: string;
+  /** Accumulated thinking/reasoning content (separate from text output) */
+  thinking: string;
   /** Error message if failed */
   error?: string;
   /** Accumulated stderr output */
@@ -99,6 +103,7 @@ export interface CouncilResult {
     model: ModelSpec;
     state: MemberState;
     output: string;
+    thinking: string;
     error?: string;
     durationMs?: number;
     stats?: unknown;

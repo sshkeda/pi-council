@@ -74,6 +74,7 @@ export class CouncilMember {
     prompt: string,
     options: {
       systemPrompt?: string;
+      thinking?: string;
       cwd?: string;
       piBinary?: string;
       piBinaryArgs?: string[];
@@ -81,6 +82,7 @@ export class CouncilMember {
   ): void {
     const {
       systemPrompt,
+      thinking,
       cwd,
       piBinary = "pi",
       piBinaryArgs = [],
@@ -95,6 +97,10 @@ export class CouncilMember {
 
     if (systemPrompt) {
       piArgs.push("--append-system-prompt", systemPrompt);
+    }
+
+    if (thinking) {
+      piArgs.push("--thinking", thinking);
     }
 
     // Support running scripts: piBinary="node", piBinaryArgs=["mock-pi.mjs"]

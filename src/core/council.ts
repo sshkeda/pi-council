@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { CouncilMember } from "./member.js";
-import { getProfile, resolveModels, DEFAULT_MODELS, PROFILES } from "./profiles.js";
+import { COUNCIL_SYSTEM_PROMPT } from "./profiles.js";
 import { generateRunId } from "../util/run-id.js";
 import type {
   SpawnOptions,
@@ -46,35 +46,23 @@ export class Council {
   /**
    * Spawn council members based on options.
    */
-  spawn(options: SpawnOptions = {}): void {
+  spawn(options: SpawnOptions): void {
     const {
-      profile: profileName = "max",
-      models: customModels,
+      models,
       systemPrompt: customSystemPrompt,
       systemPrompts,
+      thinking,
       cwd,
       piBinary,
       piBinaryArgs,
       memberTimeoutMs,
     } = options;
 
-    // Resolve what to spawn
-    let models: ModelSpec[];
-    let systemPrompt: string;
-
-    if (customModels) {
-      // Custom spawn — use provided config
-      models = customModels;
-      systemPrompt = customSystemPrompt ?? PROFILES.max.systemPrompt;
-    } else {
-      // Profile-based spawn
-      const profile = getProfile(profileName);
-      if (!profile) {
-        throw new Error(`Unknown profile: ${profileName}. Available: ${Object.keys(PROFILES).join(", ")}`);
-      }
-      models = profile.models;
-      systemPrompt = customSystemPrompt ?? profile.systemPrompt;
+    if (!models || models.length === 0) {
+      throw new Error("No models provided. Pass models in spawn options.");
     }
+
+    const systemPrompt = customSystemPrompt ?? COUNCIL_SYSTEM_PROMPT;
 
     // Create run directory and save metadata
     fs.mkdirSync(this.runDir, { recursive: true });
@@ -144,6 +132,7 @@ export class Council {
 
       member.spawn(this.prompt, {
         systemPrompt: memberPrompt,
+        thinking,
         cwd,
         piBinary,
         piBinaryArgs,

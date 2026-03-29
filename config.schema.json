@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "pi-council config",
+  "description": "Configuration for pi-council — multi-model AI council",
+  "type": "object",
+  "required": ["models", "profiles", "defaultProfile", "systemPrompt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "systemPrompt": {
+      "type": "string",
+      "description": "Base system prompt for all council members. Profiles can override this."
+    },
+    "models": {
+      "type": "object",
+      "description": "Model definitions. Keys are model IDs, values are provider + model name.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider", "model"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Provider ID (e.g. anthropic, openai-codex, google, xai, openrouter, deepseek)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model name (e.g. claude-opus-4-6, gpt-5.4)"
+          }
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Named profiles. Each profile defines which models to spawn and optional overrides.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["models"],
+        "additionalProperties": false,
+        "properties": {
+          "models": {
+            "type": "array",
+            "description": "Model IDs to spawn (must reference keys in the top-level models map)",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Override the top-level systemPrompt for this profile"
+          },
+          "thinking": {
+            "type": "string",
+            "enum": ["off", "minimal", "low", "medium", "high", "xhigh"],
+            "description": "Thinking/reasoning level for all members in this profile"
+          },
+          "memberTimeoutMs": {
+            "type": "number",
+            "description": "Kill members that exceed this timeout (milliseconds)",
+            "minimum": 1000
+          }
+        }
+      }
+    },
+    "defaultProfile": {
+      "type": "string",
+      "description": "Which profile to use when none is specified"
+    }
+  }
+}

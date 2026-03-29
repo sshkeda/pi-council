@@ -84,7 +84,10 @@ export function loadConfig(): CouncilConfig {
   const defaults = getDefaultConfig();
 
   try {
-    if (!fs.existsSync(configPath)) return defaults;
+    if (!fs.existsSync(configPath)) {
+      saveConfig(defaults);
+      return defaults;
+    }
     const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
     const models: Record<string, ModelDef> = {};

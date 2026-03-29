@@ -185,7 +185,11 @@ export default function (pi: ExtensionAPI) {
           if (resolved.length > 0) {
             spawnOptions.models = resolved;
           } else {
-            spawnOptions.models = config.models;
+            const available = config.models.map((m) => m.id).join(", ");
+            return {
+              content: [{ type: "text", text: `No matching models found for: ${params.models.join(", ")}. Available: ${available}` }],
+              details: {},
+            };
           }
         } else {
           spawnOptions.models = config.models;

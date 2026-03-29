@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import { spawn } from "./commands/spawn.js";
 import { status } from "./commands/status.js";
 import { results } from "./commands/results.js";
-import { cancel, cleanup } from "./commands/cleanup.js";
+import { cleanup } from "./commands/cleanup.js";
 import { ask } from "./commands/ask.js";
 import { list } from "./commands/list.js";
 import { watch } from "./commands/watch.js";
@@ -57,12 +57,11 @@ pi-council — spawn different AI models in parallel to get independent opinions
 
 Commands:
   ask "question"              One-shot: spawn, wait, print results
-  spawn "question"            Background: spawn and return run-id
+  spawn "question"            Spawn, print run-id, wait for completion
   status [run-id]             Show who's running, who's done
   results [run-id]            Wait for completion and print outputs
   watch [run-id]              Stream results as each agent finishes
-  cancel [run-id]             Kill workers, keep files for inspection
-  cleanup [run-id]            Kill workers and delete run
+  cleanup [run-id]            Delete run artifacts (use --all for all)
   list                        Show all runs
 
 Flags:
@@ -99,11 +98,8 @@ async function main(): Promise<void> {
     case "watch":
       await watch(runId);
       break;
-    case "cancel":
-      cancel(runId);
-      break;
     case "cleanup":
-      cleanup(runId);
+      cleanup(runId ?? (process.argv.includes("--all") ? "--all" : undefined));
       break;
     case "list":
       list(json);

@@ -1,4 +1,4 @@
-import { Council, registry } from "../core/council.js";
+import { Council } from "../core/council.js";
 import { loadConfig } from "../core/config.js";
 import { resolveModels } from "../core/profiles.js";
 import type { ModelSpec } from "../core/types.js";
@@ -8,7 +8,7 @@ export interface SpawnOptions {
   cwd?: string;
 }
 
-export function spawn(prompt: string, opts: SpawnOptions = {}): void {
+export async function spawn(prompt: string, opts: SpawnOptions = {}): Promise<void> {
   const config = loadConfig();
   let models: ModelSpec[] = config.models;
   if (opts.models && opts.models.length > 0) {
@@ -19,7 +19,6 @@ export function spawn(prompt: string, opts: SpawnOptions = {}): void {
   }
 
   const council = new Council(prompt);
-  registry.add(council);
 
   const spawnOpts: Record<string, unknown> = { models, cwd: opts.cwd };
   if (config.systemPrompt) {
@@ -34,4 +33,8 @@ export function spawn(prompt: string, opts: SpawnOptions = {}): void {
   const modelNames = models.map((m) => m.id).join(", ");
   process.stdout.write(`${council.runId}\n`);
   process.stderr.write(`Spawned: ${modelNames} (run: ${council.runId})\n`);
+
+  // Wait for all members to complete, writing artifacts as they finish.
+  // The council core already writes per-member JSON + results.json/md on completion.
+  await council.waitForCompletion();
 }

@@ -62,12 +62,13 @@ Read a member's full accumulated output, stderr, and debug info.
 pi-council ask "Should I refactor this module?"
 pi-council ask --models claude,grok "Quick review"
 pi-council ask --json "Structured output"
-pi-council spawn "Analyze MSFT"
+pi-council spawn "Analyze MSFT"   # prints run-id, waits for completion
 pi-council status [--json]
 pi-council list [--json]
 pi-council results [--json]
 pi-council watch
-pi-council cleanup
+pi-council cleanup           # latest run
+pi-council cleanup --all     # all runs
 ```
 
 ## Architecture

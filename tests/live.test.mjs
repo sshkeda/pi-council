@@ -69,7 +69,7 @@ const config = {
     },
     thinker: {
       models: ["gpt-mini"],
-      thinking: "low",
+      thinking: "medium",
     },
   },
   defaultProfile: "default",
@@ -106,7 +106,10 @@ await test("L2: Profile systemPrompt affects model behavior", async () => {
   assert(output.split(/\s+/).length <= 5, `brief output (${output.length} chars): ${output}`);
 });
 
-await test("L3: Profile with thinking level completes", async () => {
+await test("L3: thinking level completes and doesn't crash", async () => {
+  // Note: openai-codex returns thinking as encrypted/opaque — the thinking
+  // field will be empty. This test verifies the --thinking flag is accepted
+  // and doesn't break the pipeline, not that thinking content is readable.
   const resolved = resolveProfile(config, "thinker");
   const council = new Council("What is the square root of 144?");
   council.spawn({

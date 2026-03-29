@@ -16,10 +16,27 @@ One model can be wrong. Different models are wrong about **different things**. B
 3. **Disagreement is signal** — The value is in the differences, not consensus. Pay attention to the dissenter.
 4. **Background operation** — Council runs in background, orchestrator continues foreground work. Results arrive without disruption.
 
+## Prerequisites
+
+- **Node.js ≥ 22** — [nodejs.org](https://nodejs.org)
+- **pi-coding-agent** — each council member is a `pi --mode rpc` process
+
+  ```bash
+  npm install -g @mariozechner/pi-coding-agent
+  ```
+
+- **Provider auth** — run `pi`, then use `/login` to connect your subscriptions (Claude Pro/Max, ChatGPT Plus/Pro, etc.) — or set API keys as environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`)
+
 ## Install
 
 ```bash
 pi install https://github.com/sshkeda/pi-council.git
+```
+
+Then try it out:
+
+```bash
+pi-council ask "What are the tradeoffs of microservices vs monolith?"
 ```
 
 ## Extension Tools
@@ -149,7 +166,6 @@ Config lives at `~/.pi-council/config.json`. Run `pi-council config init` to cre
 pi-council ask --profile quick "Fast check"
 pi-council ask --profile code-review "Review auth.ts"
 ```
-
 
 
 ## Development

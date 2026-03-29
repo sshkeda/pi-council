@@ -135,7 +135,7 @@ export function loadConfig(): CouncilConfig {
 
 // ─── Saving ──────────────────────────────────────────────────────────
 
-const CONFIG_SCHEMA_URL = "./node_modules/pi-council/config.schema.json";
+const CONFIG_SCHEMA_URL = "https://raw.githubusercontent.com/sshkeda/pi-council/main/config.schema.json";
 
 /** Write config to disk. */
 export function saveConfig(config: CouncilConfig): void {

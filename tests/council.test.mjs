@@ -26,7 +26,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Dynamically import the council core (after build)
 const { Council, CouncilRegistry } = await import("../dist/src/core/council.js");
 const { CouncilMember } = await import("../dist/src/core/member.js");
-const { getProfile, resolveModels, DEFAULT_MODELS, PROFILES } = await import("../dist/src/core/profiles.js");
+const { DEFAULT_MODELS, COUNCIL_SYSTEM_PROMPT } = await import("../dist/src/core/profiles.js");
+const { loadConfig, resolveProfile, resolveModelIds, getDefaultConfig } = await import("../dist/src/core/config.js");
 const { generateRunId } = await import("../dist/src/util/run-id.js");
 
 let passed = 0;
@@ -81,11 +82,11 @@ await test("T2: CouncilRegistry tracks and retrieves councils", async () => {
   assert(registry.list().length === 1, "list after remove");
 });
 
-await test("T3: Profile resolution — max has 4 models", async () => {
-  const max = getProfile("max");
-  assert(max !== undefined, "exists");
-  assert(max.models.length === 4, "4 models");
-  assert(max.systemPrompt.length > 0, "has system prompt");
+await test("T3: Default config has 4 models and a default profile", async () => {
+  const config = getDefaultConfig();
+  assert(Object.keys(config.models).length === 4, "4 models");
+  assert(config.profiles.default !== undefined, "has default profile");
+  assert(config.profiles.default.models.length === 4, "default profile has 4 models");
 });
 
 await test("T4: Default models include all 4", async () => {
@@ -102,20 +103,25 @@ await test("T5: Each default model has provider and model fields", async () => {
   }
 });
 
-await test("T6: Unknown profile returns undefined", async () => {
-  assert(getProfile("nonexistent") === undefined, "undefined");
+await test("T6: Unknown profile throws", async () => {
+  const config = getDefaultConfig();
+  let threw = false;
+  try { resolveProfile(config, "nonexistent"); } catch { threw = true; }
+  assert(threw, "threw");
 });
 
-await test("T7: resolveModels filters correctly", async () => {
-  const filtered = resolveModels(DEFAULT_MODELS, ["claude", "grok"]);
+await test("T7: resolveModelIds filters correctly", async () => {
+  const config = getDefaultConfig();
+  const filtered = resolveModelIds(config, ["claude", "grok"]);
   assert(filtered.length === 2, "2 models");
   assert(filtered[0].id === "claude", "claude first");
   assert(filtered[1].id === "grok", "grok second");
 });
 
-await test("T8: resolveModels with no filter returns all", async () => {
-  const all = resolveModels(DEFAULT_MODELS);
-  assert(all.length === 4, "all 4");
+await test("T8: resolveProfile returns all models for default profile", async () => {
+  const config = getDefaultConfig();
+  const resolved = resolveProfile(config);
+  assert(resolved.models.length === 4, "all 4");
 });
 
 await test("T9: Run IDs are unique", async () => {
@@ -159,10 +165,10 @@ await test("T13: Council.getResult() structure is correct", async () => {
   assert(Array.isArray(result.members), "members array");
 });
 
-await test("T14: Unknown profile in spawn() throws", async () => {
-  const council = new Council("Bad profile");
+await test("T14: spawn() with no models throws", async () => {
+  const council = new Council("No models");
   let threw = false;
-  try { council.spawn({ profile: "nonexistent" }); } catch { threw = true; }
+  try { council.spawn({ models: [] }); } catch { threw = true; }
   assert(threw, "threw");
 });
 
@@ -179,10 +185,9 @@ await test("T16: readStream throws for unknown member", async () => {
   assert(threw, "threw");
 });
 
-await test("T17: Max profile has council system prompt", async () => {
-  const max = PROFILES.max;
-  assert(max.systemPrompt.includes("council"), "mentions council");
-  assert(max.systemPrompt.includes("independent"), "mentions independence");
+await test("T17: Council system prompt mentions council and independence", async () => {
+  assert(COUNCIL_SYSTEM_PROMPT.includes("council"), "mentions council");
+  assert(COUNCIL_SYSTEM_PROMPT.includes("independent"), "mentions independence");
 });
 
 await test("T18: Registry active() filters correctly", async () => {

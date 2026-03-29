@@ -38,7 +38,9 @@ Spawn a council. Returns immediately — results auto-delivered as each member f
 
 Parameters:
 - `question` (required): The question for the council. Frame it neutrally.
-- `models` (optional): Array of model IDs e.g. `["claude", "grok"]`. Default: all 4.
+- `profile` (optional): Named profile from config e.g. `"quick"`, `"code-review"`. Default: the `defaultProfile` from config.
+- `models` (optional): Array of model IDs e.g. `["claude", "grok"]`. Overrides profile if both given.
+- `label` (optional): Short label for status widget.
 
 ### council_followup
 Send a follow-up to running council members.
@@ -59,6 +61,73 @@ Get detailed status of all council members — state, elapsed time, streaming st
 ### read_stream
 Read a member's full accumulated output, stderr, and debug info.
 **Only use to re-read a past result or when the user asks.** Output is auto-delivered via followUp.
+
+## Configuration
+
+Config file: `~/.pi-council/config.json`
+
+Run `pi-council config` to view current config, `pi-council config path` to print the file path.
+
+### Schema
+
+```json
+{
+  "systemPrompt": "base system prompt for all council members",
+  "models": {
+    "<id>": { "provider": "<provider>", "model": "<model-name>" }
+  },
+  "profiles": {
+    "<name>": {
+      "models": ["<model-id>", ...],
+      "systemPrompt": "overrides the top-level systemPrompt for this profile",
+      "thinking": "off | minimal | low | medium | high | xhigh",
+      "memberTimeoutMs": 120000
+    }
+  },
+  "defaultProfile": "<profile-name>"
+}
+```
+
+### Invariants
+- Every model ID in a profile's `models` array must exist in the top-level `models` map
+- `defaultProfile` must reference an existing profile name
+- At least one profile must exist
+- Top-level `systemPrompt` applies to all profiles unless overridden per-profile
+
+### Example config
+
+```json
+{
+  "models": {
+    "claude": { "provider": "anthropic", "model": "claude-opus-4-6" },
+    "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
+    "gemini": { "provider": "google", "model": "gemini-3.1-pro-preview" },
+    "grok": { "provider": "xai", "model": "grok-4.20-0309-reasoning" },
+    "deepseek": { "provider": "deepseek", "model": "deepseek-r1" }
+  },
+  "profiles": {
+    "default": {
+      "models": ["claude", "gpt", "gemini", "grok"]
+    },
+    "quick": {
+      "models": ["claude", "gpt"]
+    },
+    "code-review": {
+      "models": ["claude", "gpt", "gemini"],
+      "systemPrompt": "You are reviewing code for quality, bugs, and design issues.",
+      "thinking": "high",
+      "memberTimeoutMs": 120000
+    }
+  },
+  "defaultProfile": "default",
+  "systemPrompt": "You are one member of a multi-model council. Multiple AI models have been given the same question independently. Your job is to provide YOUR perspective — do your own research, form your own opinion, and be specific.\n\nRules:\n- Work independently. Do NOT try to coordinate with other models.\n- Do NOT spawn other agents or run council commands.\n- Use your tools to investigate if the question is about code, files, or data.\n- Be concise and specific. Give your actual opinion, not a generic overview.\n- If you disagree with a common assumption, say so clearly and explain why."
+}
+```
+
+### Customizing
+
+To add a model or profile, read `~/.pi-council/config.json` and edit it directly.
+The config supports the full schema above including `systemPrompt` and `memberTimeoutMs` per profile.
 
 ## Results location
 All run artifacts at `~/.pi-council/runs/<run-id>/`:

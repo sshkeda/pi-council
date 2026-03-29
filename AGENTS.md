@@ -13,19 +13,25 @@ Tests: `tests/council.test.mjs` (deterministic tests using `tests/mock-pi.mjs`).
 
 ```bash
 pi-council ask "your question"
+pi-council ask --profile quick "your question"
 pi-council ask --models claude,grok "your question"
 pi-council ask --json "your question"
 pi-council spawn "your question"
 pi-council status
-pi-council status --json
 pi-council watch
 pi-council results
 pi-council list
-pi-council list --json
 pi-council cleanup
+
+# Configuration
+pi-council config                   # Show models, profiles, defaults
+pi-council config path              # Print config file path
+pi-council config init              # Create default config
+# Edit ~/.pi-council/config.json directly for model/profile changes
 ```
 
-Available models: `claude`, `gpt`, `gemini`, `grok`
+Default models: `claude`, `gpt`, `gemini`, `grok`
+Config: `~/.pi-council/config.json` (models map + named profiles + defaultProfile)
 
 ## Key design
 
@@ -35,4 +41,7 @@ Available models: `claude`, `gpt`, `gemini`, `grok`
 - The point is surfacing **disagreement**, not consensus
 - The orchestrator should prompt neutrally — no bias injection
 - Per-member results written to disk as each member finishes
-- Config customizable via `~/.pi-council/config.json`
+- Config: `~/.pi-council/config.json` with models map, named profiles, defaultProfile
+- Profiles support custom system prompts and per-member timeouts
+- `--profile <name>` flag on ask/spawn, `profile` param on spawn_council extension tool
+

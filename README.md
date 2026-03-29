@@ -31,10 +31,13 @@ Spawn models in parallel. Returns immediately.
 
 ```
 spawn_council({ question: "Should we use microservices?" })
+spawn_council({ question: "Review this PR", profile: "code-review" })
+spawn_council({ question: "Quick check", models: ["claude", "gpt"] })
 ```
 
 - `question` — The question, framed neutrally
-- `models` — Optional: `["claude", "grok"]`
+- `profile` — Optional: named profile from config (e.g. `"quick"`, `"code-review"`)
+- `models` — Optional: explicit model IDs (overrides profile)
 
 ### `council_followup`
 Send a follow-up to running members.
@@ -59,16 +62,25 @@ Read a member's full accumulated output, stderr, and debug info.
 ## CLI
 
 ```bash
+# Ask
 pi-council ask "Should I refactor this module?"
+pi-council ask --profile quick "Fast review"
 pi-council ask --models claude,grok "Quick review"
 pi-council ask --json "Structured output"
-pi-council spawn "Analyze MSFT"   # prints run-id, waits for completion
+
+# Spawn & monitor
+pi-council spawn "Analyze MSFT"
 pi-council status [--json]
 pi-council list [--json]
 pi-council results [--json]
 pi-council watch
-pi-council cleanup           # latest run
-pi-council cleanup --all     # all runs
+pi-council cleanup
+pi-council cleanup --all
+
+# Configuration
+pi-council config                   # Show current config
+pi-council config path              # Print config file path
+pi-council config init              # Create default config
 ```
 
 ## Architecture
@@ -103,24 +115,48 @@ Artifacts at `~/.pi-council/runs/<run-id>/`:
 
 ## Configuration
 
-Custom models and system prompt via `~/.pi-council/config.json`:
+Config lives at `~/.pi-council/config.json`. Run `pi-council config init` to create it.
 
 ```json
 {
-  "models": [
-    { "id": "claude", "provider": "anthropic", "model": "claude-opus-4-6" },
-    { "id": "gpt", "provider": "openai-codex", "model": "gpt-5.4" }
-  ],
-  "systemPrompt": "You are a council member. Be concise."
+  "models": {
+    "claude": { "provider": "anthropic", "model": "claude-opus-4-6" },
+    "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
+    "gemini": { "provider": "google", "model": "gemini-3.1-pro-preview" },
+    "grok": { "provider": "xai", "model": "grok-4.20-0309-reasoning" }
+  },
+  "profiles": {
+    "default": {
+      "models": ["claude", "gpt", "gemini", "grok"]
+    },
+    "quick": {
+      "models": ["claude", "gpt"]
+    },
+    "code-review": {
+      "models": ["claude", "gpt", "gemini"],
+      "systemPrompt": "You are reviewing code for quality, bugs, and design issues.",
+      "thinking": "high",
+      "memberTimeoutMs": 120000
+    }
+  },
+  "defaultProfile": "default"
 }
 ```
+
+**Models** define available AI models by ID → provider/model. **Profiles** are named sets of models with optional system prompt, thinking level (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`), and timeout. Use `--profile` to switch:
+
+```bash
+pi-council ask --profile quick "Fast check"
+pi-council ask --profile code-review "Review auth.ts"
+```
+
+
 
 ## Development
 
 ```bash
 npm run build        # TypeScript compile
 npm run dev          # Run CLI via tsx
-./autoresearch.sh    # Build + run test suite in Docker sandbox
 ```
 
 ## License

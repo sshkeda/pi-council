@@ -76,8 +76,8 @@
     "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*",
     "@types/node": "^22.0.0",
+    "pi-mock": "^1.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.7.0",
-    "pi-mock": "file:../pi-mock"
+    "typescript": "^5.7.0"
   }
 }

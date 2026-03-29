@@ -1,29 +1,41 @@
 import { Council } from "../core/council.js";
-import { loadConfig } from "../core/config.js";
-import { resolveModels } from "../core/profiles.js";
+import { loadConfig, resolveProfile, resolveModelIds } from "../core/config.js";
 import type { ModelSpec } from "../core/types.js";
 
 export interface SpawnOptions {
   models?: string[];
+  profile?: string;
   cwd?: string;
 }
 
 export async function spawn(prompt: string, opts: SpawnOptions = {}): Promise<void> {
   const config = loadConfig();
-  let models: ModelSpec[] = config.models;
+
+  let models: ModelSpec[];
+  let systemPrompt: string | undefined;
+  let thinking: string | undefined;
+  let memberTimeoutMs: number | undefined;
+
   if (opts.models && opts.models.length > 0) {
-    models = resolveModels(config.models, opts.models);
+    models = resolveModelIds(config, opts.models);
     if (models.length === 0) {
-      throw new Error("No matching models found.");
+      const available = Object.keys(config.models).join(", ");
+      throw new Error(`No matching models found. Available: ${available}`);
     }
+  } else {
+    const resolved = resolveProfile(config, opts.profile);
+    models = resolved.models;
+    systemPrompt = resolved.systemPrompt;
+    thinking = resolved.thinking;
+    memberTimeoutMs = resolved.memberTimeoutMs;
   }
 
   const council = new Council(prompt);
 
   const spawnOpts: Record<string, unknown> = { models, cwd: opts.cwd };
-  if (config.systemPrompt) {
-    spawnOpts.systemPrompt = config.systemPrompt;
-  }
+  if (systemPrompt) spawnOpts.systemPrompt = systemPrompt;
+  if (thinking) spawnOpts.thinking = thinking;
+  if (memberTimeoutMs) spawnOpts.memberTimeoutMs = memberTimeoutMs;
   if (process.env.PI_COUNCIL_PI_BINARY) {
     spawnOpts.piBinary = "node";
     spawnOpts.piBinaryArgs = [process.env.PI_COUNCIL_PI_BINARY];
@@ -34,7 +46,5 @@ export async function spawn(prompt: string, opts: SpawnOptions = {}): Promise<vo
   process.stdout.write(`${council.runId}\n`);
   process.stderr.write(`Spawned: ${modelNames} (run: ${council.runId})\n`);
 
-  // Wait for all members to complete, writing artifacts as they finish.
-  // The council core already writes per-member JSON + results.json/md on completion.
   await council.waitForCompletion();
 }

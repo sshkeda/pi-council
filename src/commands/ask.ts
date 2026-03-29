@@ -1,22 +1,36 @@
 import { Council } from "../core/council.js";
-import { loadConfig } from "../core/config.js";
-import { resolveModels } from "../core/profiles.js";
+import { loadConfig, resolveProfile, resolveModelIds } from "../core/config.js";
 import type { ModelSpec } from "../core/types.js";
 
 export interface AskOptions {
   models?: string[];
+  profile?: string;
   cwd?: string;
   json?: boolean;
 }
 
 export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> {
   const config = loadConfig();
-  let models: ModelSpec[] = config.models;
+
+  // Resolve models: --models flag picks from all defined models,
+  // --profile uses a named profile, default uses the default profile.
+  let models: ModelSpec[];
+  let systemPrompt: string | undefined;
+  let thinking: string | undefined;
+  let memberTimeoutMs: number | undefined;
+
   if (opts.models && opts.models.length > 0) {
-    models = resolveModels(config.models, opts.models);
+    models = resolveModelIds(config, opts.models);
     if (models.length === 0) {
-      throw new Error("No matching models found.");
+      const available = Object.keys(config.models).join(", ");
+      throw new Error(`No matching models found. Available: ${available}`);
     }
+  } else {
+    const resolved = resolveProfile(config, opts.profile);
+    models = resolved.models;
+    systemPrompt = resolved.systemPrompt;
+    thinking = resolved.thinking;
+    memberTimeoutMs = resolved.memberTimeoutMs;
   }
 
   const council = new Council(prompt);
@@ -37,11 +51,10 @@ export async function ask(prompt: string, opts: AskOptions = {}): Promise<void> 
 
   process.stderr.write(`\n🏛️  Council (${models.length} models)\n\n`);
 
-  // Support PI_COUNCIL_PI_BINARY env for testing with mock-pi
   const spawnOpts: Record<string, unknown> = { models, cwd: opts.cwd };
-  if (config.systemPrompt) {
-    spawnOpts.systemPrompt = config.systemPrompt;
-  }
+  if (systemPrompt) spawnOpts.systemPrompt = systemPrompt;
+  if (thinking) spawnOpts.thinking = thinking;
+  if (memberTimeoutMs) spawnOpts.memberTimeoutMs = memberTimeoutMs;
   if (process.env.PI_COUNCIL_PI_BINARY) {
     spawnOpts.piBinary = "node";
     spawnOpts.piBinaryArgs = [process.env.PI_COUNCIL_PI_BINARY];

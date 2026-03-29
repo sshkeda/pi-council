@@ -8,19 +8,23 @@ import { cleanup } from "./commands/cleanup.js";
 import { ask } from "./commands/ask.js";
 import { list } from "./commands/list.js";
 import { watch } from "./commands/watch.js";
+import { configCmd } from "./commands/config-cmd.js";
 
 function parseArgs(argv: string[]): {
   command: string;
   runId?: string;
   models?: string[];
+  profile?: string;
   cwd?: string;
   json?: boolean;
   prompt: string;
+  rest: string[];
 } {
   const args = argv.slice(2);
   const command = args[0] ?? "help";
 
   let models: string[] | undefined;
+  let profile: string | undefined;
   let cwd: string | undefined;
   let json = false;
   let runId: string | undefined;
@@ -30,6 +34,9 @@ function parseArgs(argv: string[]): {
   while (i < args.length) {
     if (args[i] === "--models" && i + 1 < args.length) {
       models = args[i + 1].split(",");
+      i += 2;
+    } else if (args[i] === "--profile" && i + 1 < args.length) {
+      profile = args[i + 1];
       i += 2;
     } else if (args[i] === "--cwd" && i + 1 < args.length) {
       cwd = args[i + 1];
@@ -48,7 +55,7 @@ function parseArgs(argv: string[]): {
     runId = rest[0];
   }
 
-  return { command, runId, models, cwd, json, prompt };
+  return { command, runId, models, profile, cwd, json, prompt, rest };
 }
 
 function printHelp(): void {
@@ -64,30 +71,35 @@ Commands:
   cleanup [run-id]            Delete run artifacts (use --all for all)
   list                        Show all runs
 
+  config [show|path|init]     View and initialize configuration
+
 Flags:
   --models claude,gpt,grok    Select which models to run (default: all)
+  --profile <name>             Use a named profile (default: "default")
   --json                       Output structured JSON instead of markdown
   --cwd /path                  Working directory for agents
 
 Examples:
   pi-council ask "Should I refactor this module?"
+  pi-council ask --profile quick "Fast review"
   pi-council spawn --models claude,grok "Analyze MSFT"
+  pi-council config
   pi-council watch
   pi-council cleanup
 `);
 }
 
 async function main(): Promise<void> {
-  const { command, runId, models, cwd, json, prompt } = parseArgs(process.argv);
+  const { command, runId, models, profile, cwd, json, prompt, rest } = parseArgs(process.argv);
 
   switch (command) {
     case "ask":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      await ask(prompt, { models, cwd, json });
+      await ask(prompt, { models, profile, cwd, json });
       break;
     case "spawn":
       if (!prompt) { process.stderr.write("Error: question required\n"); process.exitCode = 1; return; }
-      spawn(prompt, { models, cwd });
+      spawn(prompt, { models, profile, cwd });
       break;
     case "status":
       status(runId, json);
@@ -104,6 +116,9 @@ async function main(): Promise<void> {
     case "list":
       list(json);
       break;
+    case "config":
+      configCmd(rest, json);
+      break;
     case "help":
     case "--help":
     case "-h":
@@ -117,14 +132,15 @@ async function main(): Promise<void> {
       process.stdout.write(pkg.version + "\n");
       break;
     }
-    default:
+    default: {
       // Treat everything as an implicit ask
       const fullPrompt = [command, prompt].filter(Boolean).join(" ");
       if (fullPrompt.trim()) {
-        await ask(fullPrompt, { models, cwd, json });
+        await ask(fullPrompt, { models, profile, cwd, json });
       } else {
         printHelp();
       }
+    }
   }
 }
 

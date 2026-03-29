@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Council, CouncilRegistry } from "../../src/core/council.js";
-import { loadConfig } from "../../src/core/config.js";
+import { loadConfig, resolveProfile, resolveModelIds } from "../../src/core/config.js";
 import type { ModelSpec, CouncilEvent } from "../../src/core/types.js";
 
 export default function (pi: ExtensionAPI) {
@@ -41,8 +41,11 @@ export default function (pi: ExtensionAPI) {
       question: Type.String({ description: "Question for the council. Frame it neutrally — do not inject your own opinions or conclusions." }),
       models: Type.Optional(
         Type.Array(Type.String(), {
-          description: 'Model IDs to use (default: all 4). e.g. ["claude", "grok"]',
+          description: 'Model IDs to use (default: all from profile). e.g. ["claude", "grok"]',
         }),
+      ),
+      profile: Type.Optional(
+        Type.String({ description: 'Named profile to use (from ~/.pi-council/config.json). e.g. "quick", "code-review"' }),
       ),
       label: Type.Optional(
         Type.String({ description: 'Short label for this council run (shown in status widget). e.g. "architecture review"' }),
@@ -171,28 +174,33 @@ export default function (pi: ExtensionAPI) {
           cwd: ctx.cwd,
         };
 
-        if (config.systemPrompt) {
-          spawnOptions.systemPrompt = config.systemPrompt;
-        }
-        if (config.memberTimeoutMs) {
-          spawnOptions.memberTimeoutMs = config.memberTimeoutMs;
-        }
-
         if (params.models && params.models.length > 0) {
-          const resolved = config.models.filter((m) =>
-            params.models!.some((id) => id.toLowerCase() === m.id.toLowerCase()),
-          );
+          // Explicit model IDs — pick from all defined models
+          const resolved = resolveModelIds(config, params.models);
           if (resolved.length > 0) {
             spawnOptions.models = resolved;
           } else {
-            const available = config.models.map((m) => m.id).join(", ");
+            const available = Object.keys(config.models).join(", ");
             return {
               content: [{ type: "text", text: `No matching models found for: ${params.models.join(", ")}. Available: ${available}` }],
               details: {},
             };
           }
         } else {
-          spawnOptions.models = config.models;
+          // Use named profile (or default)
+          try {
+            const resolved = resolveProfile(config, params.profile);
+            spawnOptions.models = resolved.models;
+            if (resolved.systemPrompt) spawnOptions.systemPrompt = resolved.systemPrompt;
+            if (resolved.thinking) spawnOptions.thinking = resolved.thinking;
+            if (resolved.memberTimeoutMs) spawnOptions.memberTimeoutMs = resolved.memberTimeoutMs;
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return {
+              content: [{ type: "text", text: msg }],
+              details: {},
+            };
+          }
         }
 
         council.spawn(spawnOptions as any);

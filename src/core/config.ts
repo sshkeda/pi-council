@@ -12,6 +12,8 @@ import { DEFAULT_MODELS } from "./profiles.js";
 export interface CouncilConfig {
   models: ModelSpec[];
   systemPrompt?: string;
+  /** Per-member timeout in ms. Members exceeding this are cancelled. */
+  memberTimeoutMs?: number;
 }
 
 /** Resolve config dir at call time so $HOME overrides work */
@@ -38,6 +40,7 @@ export function loadConfig(): CouncilConfig {
             })).filter((m: ModelSpec) => m.id && m.provider && m.model)
           : DEFAULT_MODELS,
         systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt : undefined,
+        memberTimeoutMs: typeof raw.memberTimeoutMs === "number" ? raw.memberTimeoutMs : undefined,
       };
     }
   } catch {

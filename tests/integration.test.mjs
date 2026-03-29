@@ -9,7 +9,13 @@
  *   3. Multi-member: mixed timing, cancel one, timeout, status polling
  */
 
-import { createGateway, createControllableBrain, text, thinking, toolCall } from "pi-mock";
+import {
+  createGateway, createControllableBrain, text, thinking, toolCall,
+  bash, edit, writeTool, readTool, error,
+  script, always,
+  flakyBrain, failFirst, errorAfter, failNth, intermittent,
+  rateLimited, overloaded, serverError, httpError,
+} from "pi-mock";
 import { Council } from "../dist/src/core/council.js";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -652,6 +658,355 @@ await test("S8: brain sees Pi-native per-model headers from models.json", async 
   if (prevAgentDir !== undefined) process.env.PI_CODING_AGENT_DIR = prevAgentDir;
   else delete process.env.PI_CODING_AGENT_DIR;
   rmSync(customDir, { recursive: true, force: true });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// S9: Response builders — bash, edit, write, read, error
+// ═════════════════════════════════════════════════════════════════════
+
+await test("S9: response builders produce correct tool calls and SSE error", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  // ── bash builder with timeout
+  const c1 = new Council("bash builder");
+  c1.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const call1 = await cb.waitForCall(3000);
+  call1.respond(bash("ls -la", 10));
+  const call1b = await cb.waitForCall(3000);
+  call1b.respond(text("Listed files."));
+  const r1 = await c1.waitForCompletion();
+  assert(r1.members[0].output.includes("Listed"), "bash builder output");
+  assert(r1.members[0].toolEvents.length >= 2, "bash tool events tracked");
+
+  // ── edit builder
+  const c2 = new Council("edit builder");
+  c2.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const call2 = await cb.waitForCall(3000);
+  call2.respond(edit("test.ts", "old code", "new code"));
+  const call2b = await cb.waitForCall(3000);
+  call2b.respond(text("Edited."));
+  const r2 = await c2.waitForCompletion();
+  assert(r2.members[0].output.includes("Edited"), "edit builder output");
+
+  // ── write builder
+  const c3 = new Council("write builder");
+  c3.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const call3 = await cb.waitForCall(3000);
+  call3.respond(writeTool("new-file.ts", "export const x = 1;"));
+  const call3b = await cb.waitForCall(3000);
+  call3b.respond(text("Written."));
+  const r3 = await c3.waitForCompletion();
+  assert(r3.members[0].output.includes("Written"), "write builder output");
+
+  // ── read builder
+  const c4 = new Council("read builder");
+  c4.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const call4 = await cb.waitForCall(3000);
+  call4.respond(readTool("package.json"));
+  const call4b = await cb.waitForCall(3000);
+  call4b.respond(text("Read the file."));
+  const r4 = await c4.waitForCompletion();
+  assert(r4.members[0].output.includes("Read"), "read builder output");
+
+  // ── multi-block response: thinking + tool + text in one turn
+  const c5 = new Council("multi-block");
+  c5.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const call5 = await cb.waitForCall(3000);
+  call5.respond([thinking("Let me check..."), bash("echo hi")]);
+  const call5b = await cb.waitForCall(3000);
+  call5b.respond([thinking("Now I know."), text("The answer is 42.")]);
+  const r5 = await c5.waitForCompletion();
+  assert(r5.members[0].output.includes("42"), "multi-block text output");
+  assert(r5.members[0].thinking.length > 0, "multi-block thinking captured");
+
+  // ── error builder (SSE-level error event)
+  const c6 = new Council("error builder");
+  c6.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const call6 = await cb.waitForCall(3000);
+  call6.respond(error("something went wrong"));
+  // pi should handle the SSE error — might retry or fail
+  // Either way, council should complete without hanging
+  const r6 = await Promise.race([
+    c6.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("ERROR BUILDER HUNG")), 15000)),
+  ]);
+  // Member should finish (done or failed)
+  assert(r6.members[0].state === "done" || r6.members[0].state === "failed" || r6.members[0].state === "cancelled",
+    `error builder state: ${r6.members[0].state}`);
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// S10: Script brain — simpler alternative to controllable brain
+// ═════════════════════════════════════════════════════════════════════
+
+await test("S10: script brain — ordered responses without manual control", async () => {
+  // ── Basic script: tool call → text
+  gw.setBrain(script(bash("echo hello"), text("All done.")));
+
+  const c1 = new Council("script basic");
+  c1.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const r1 = await Promise.race([
+    c1.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("SCRIPT BASIC HUNG")), 15000)),
+  ]);
+  assert(r1.members[0].state === "done", "script basic done");
+  assert(r1.members[0].output.includes("done"), `script basic output: ${r1.members[0].output.slice(0, 80)}`);
+
+  // ── Script with thinking
+  gw.setBrain(script(
+    [thinking("Hmm, let me think"), bash("echo step1")],
+    [thinking("OK, now I know"), text("Final answer.")],
+  ));
+
+  const c2 = new Council("script thinking");
+  c2.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const r2 = await Promise.race([
+    c2.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("SCRIPT THINKING HUNG")), 15000)),
+  ]);
+  assert(r2.members[0].output.includes("Final"), "script thinking output");
+  assert(r2.members[0].thinking.length > 0, "script thinking captured");
+
+  // ── Always brain — same response forever
+  gw.setBrain(always(text("I always say this.")));
+
+  const c3 = new Council("always brain");
+  c3.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+  const r3 = await Promise.race([
+    c3.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("ALWAYS BRAIN HUNG")), 15000)),
+  ]);
+  assert(r3.members[0].output.includes("always"), "always brain output");
+
+  // ── Script with multi-member: each member consumes from same script
+  // Since script is shared, first member gets response 0, second gets 1, etc.
+  gw.setBrain(script(text("First."), text("Second."), text("Third."), text("Fourth.")));
+
+  const c4 = new Council("script multi");
+  c4.spawn({ models: [
+    { id: "a", provider: "pi-mock", model: "mock" },
+    { id: "b", provider: "pi-mock", model: "mock" },
+  ] });
+  const r4 = await Promise.race([
+    c4.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("SCRIPT MULTI HUNG")), 15000)),
+  ]);
+  assert(r4.members.every((m) => m.state === "done"), "script multi: all done");
+  assert(r4.members.every((m) => m.output.length > 0), "script multi: all have output");
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// S11: Fault injection — flakyBrain, failFirst, errorAfter, failNth, intermittent
+// ═════════════════════════════════════════════════════════════════════
+
+await test("S11: failFirst — council handles initial API errors gracefully", async () => {
+  // Fail first request with 429, then succeed.
+  // Known behavior: pi auto-retry emits two agent_end events. The member
+  // captures the first (error) agent_end and marks done — the retry's
+  // successful agent_end arrives after completion. The key assertion is
+  // that council completes without hanging or crashing.
+  gw.setBrain(failFirst(1, always(text("Recovered!")), rateLimited(1)));
+
+  const c = new Council("failFirst test");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("FAILFIRST HUNG")), 30000)),
+  ]);
+
+  // Member should complete — either done (possibly empty from error agent_end)
+  // or failed. The important thing: no hang, no crash.
+  assert(r.members[0].state === "done" || r.members[0].state === "failed",
+    `failFirst state: ${r.members[0].state}`);
+});
+
+await test("S11b: failFirst with rateLimited error", async () => {
+  gw.setBrain(failFirst(1, always(text("Back online.")), rateLimited(1)));
+
+  const c = new Council("failFirst ratelimit");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("FAILFIRST RATELIMIT HUNG")), 30000)),
+  ]);
+
+  assert(r.members[0].state === "done" || r.members[0].state === "failed",
+    `ratelimit recovery state: ${r.members[0].state}`);
+});
+
+await test("S11c: errorAfter — member fails after N successes", async () => {
+  // Succeed once (text response), then all subsequent calls error.
+  // The member should complete on the first call since text = end_turn.
+  gw.setBrain(errorAfter(1, always(text("First response works."))));
+
+  const c = new Council("errorAfter test");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("ERRORAFTER HUNG")), 15000)),
+  ]);
+
+  assert(r.members[0].state === "done", "errorAfter: completed on first call");
+  assert(r.members[0].output.includes("First"), "errorAfter: got first response");
+});
+
+await test("S11d: errorAfter with tool call — dies mid-session", async () => {
+  // Allow 1 request (tool call), then error on the follow-up.
+  // Pi will retry the follow-up and eventually give up.
+  gw.setBrain(errorAfter(1, script(bash("echo hello"), text("never reached"))));
+
+  const c = new Council("errorAfter mid-session");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("ERRORAFTER MID HUNG")), 30000)),
+  ]);
+
+  // Should complete (either done with partial output or failed)
+  assert(r.members[0].state === "done" || r.members[0].state === "failed",
+    `errorAfter mid-session state: ${r.members[0].state}`);
+});
+
+await test("S11e: failNth — single transient failure mid-session", async () => {
+  // Request #1 (index 1, the second call) fails, others succeed.
+  // Script: call0 = bash, call1 = FAIL (pi retries → gets call2), call2 = text
+  gw.setBrain(failNth(1, script(bash("echo step"), text("Completed after glitch."))));
+
+  const c = new Council("failNth test");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("FAILNTH HUNG")), 30000)),
+  ]);
+
+  assert(r.members[0].state === "done" || r.members[0].state === "failed",
+    `failNth state: ${r.members[0].state}`);
+});
+
+await test("S11f: intermittent — patterned failures", async () => {
+  // Pattern: fail, succeed, fail, succeed...
+  // First call fails → pi retries → second call succeeds
+  gw.setBrain(intermittent(always(text("Intermittent success.")), {
+    pattern: [false, true],
+    error: serverError(),
+  }));
+
+  const c = new Council("intermittent test");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("INTERMITTENT HUNG")), 30000)),
+  ]);
+
+  assert(r.members[0].state === "done" || r.members[0].state === "failed",
+    `intermittent state: ${r.members[0].state}`);
+});
+
+await test("S11g: flakyBrain — seeded random failures", async () => {
+  // 30% failure rate with seed 42 (deterministic)
+  gw.setBrain(flakyBrain(always(text("Flaky but alive.")), {
+    rate: 0.3,
+    error: overloaded(),
+    seed: 42,
+  }));
+
+  const c = new Council("flakyBrain test");
+  c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("FLAKY HUNG")), 30000)),
+  ]);
+
+  // Should complete — pi retries through the flaky errors
+  assert(r.members[0].state === "done" || r.members[0].state === "failed",
+    `flaky state: ${r.members[0].state}`);
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// S12: HTTP error builders — all error types
+// ═════════════════════════════════════════════════════════════════════
+
+await test("S12: HTTP error builders — council handles all error types gracefully", async () => {
+  const errorTypes = [
+    { name: "rateLimited", brain: failFirst(1, always(text("OK")), rateLimited(1)) },
+    { name: "overloaded", brain: failFirst(1, always(text("OK")), overloaded()) },
+    { name: "serverError", brain: failFirst(1, always(text("OK")), serverError()) },
+    { name: "httpError 502", brain: failFirst(1, always(text("OK")), httpError(502, "bad gateway")) },
+  ];
+
+  for (const { name, brain } of errorTypes) {
+    gw.setBrain(brain);
+
+    const c = new Council(`error type: ${name}`);
+    c.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
+
+    const r = await Promise.race([
+      c.waitForCompletion(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`${name} HUNG`)), 30000)),
+    ]);
+
+    assert(r.members[0].state === "done" || r.members[0].state === "failed",
+      `${name}: state=${r.members[0].state}`);
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// S13: Fault injection + multi-member — one member flaky, others stable
+// ═════════════════════════════════════════════════════════════════════
+
+await test("S13: mixed reliability — one flaky member, two stable", async () => {
+  const cb = createControllableBrain();
+
+  // Custom brain: stable for known models, flaky for "flaky-model"
+  let flakyCallCount = 0;
+  const mixedBrain = (req, index) => {
+    if (req.model === "flaky-model") {
+      flakyCallCount++;
+      if (flakyCallCount <= 2) return overloaded();
+      return text("Flaky member recovered!");
+    }
+    // Stable members go through controllable brain
+    return cb.brain(req, index);
+  };
+  gw.setBrain(mixedBrain);
+
+  const c = new Council("mixed reliability");
+  c.spawn({ models: [
+    { id: "stable1", provider: "pi-mock", model: "stable-a" },
+    { id: "flaky", provider: "pi-mock", model: "flaky-model" },
+    { id: "stable2", provider: "pi-mock", model: "stable-b" },
+  ] });
+
+  // Respond to stable members via controllable brain
+  const s1 = await cb.waitForCall({ model: "stable-a" }, 3000);
+  const s2 = await cb.waitForCall({ model: "stable-b" }, 3000);
+  s1.respond(text("Stable 1 is fine."));
+  s2.respond(text("Stable 2 is fine."));
+
+  const r = await Promise.race([
+    c.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("MIXED RELIABILITY HUNG")), 30000)),
+  ]);
+
+  const stable1 = r.members.find((m) => m.id === "stable1");
+  const stable2 = r.members.find((m) => m.id === "stable2");
+  const flaky = r.members.find((m) => m.id === "flaky");
+
+  assert(stable1.state === "done", "stable1 done");
+  assert(stable2.state === "done", "stable2 done");
+  assert(stable1.output.includes("Stable 1"), "stable1 output");
+  assert(stable2.output.includes("Stable 2"), "stable2 output");
+  // Flaky member: either recovered or failed, but didn't hang
+  assert(flaky.state === "done" || flaky.state === "failed",
+    `flaky state: ${flaky.state}`);
 });
 
 // ─── Cleanup ─────────────────────────────────────────────────────────

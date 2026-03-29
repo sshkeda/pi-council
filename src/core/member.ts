@@ -6,6 +6,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { ModelSpec, MemberState, MemberStatus, CouncilEvent } from "./types.js";
 
 type EventListener = (event: CouncilEvent) => void;
@@ -38,6 +39,7 @@ export class CouncilMember {
   private finishedAt: number | undefined;
   private exitCode: number | null | undefined;
   private buffer = "";
+  private decoder = new StringDecoder("utf8");
   private listeners: EventListener[] = [];
   private pendingResponses = new Map<string, {
     resolve: (resp: RpcResponse) => void;
@@ -127,8 +129,11 @@ export class CouncilMember {
     this.emit({ type: "member_started", memberId: this.id, model: this.model });
 
     // Read stdout line by line (JSONL)
+    // Uses StringDecoder to correctly handle multi-byte UTF-8 sequences
+    // split across pipe chunks (without it, chunk.toString() corrupts them
+    // into U+FFFD replacement characters).
     this.child.stdout!.on("data", (chunk: Buffer) => {
-      this.buffer += chunk.toString();
+      this.buffer += this.decoder.write(chunk);
       this.processBuffer();
     });
 

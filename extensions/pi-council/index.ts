@@ -77,10 +77,19 @@ export default function (pi: ExtensionAPI) {
             const member = council.getMember(memberId);
             if (member) {
               const status = member.getStatus();
-              const icon = status.state === "done" ? "✅" : "❌";
-              const duration = status.durationMs ? `${(status.durationMs / 1000).toFixed(1)}s` : "";
               const outputLen = status.output?.length ?? 0;
+              const hasOutput = outputLen > 0;
+              // Flag empty-output completions — a "done" member with no output is suspicious
+              const icon = status.state === "done" && hasOutput ? "✅" : status.state === "done" ? "⚠️" : "❌";
+              const duration = status.durationMs ? `${(status.durationMs / 1000).toFixed(1)}s` : "";
               const memberFile = `${council.getRunDir()}/${memberId}.json`;
+
+              const thinkingNote = status.thinking?.length
+                ? `\n*Thinking: ${status.thinking.length} chars (see full result for details)*`
+                : "";
+              const emptyWarning = status.state === "done" && !hasOutput && !status.error
+                ? `\n⚠️ **This member completed but produced no output.** It may have timed out on tool calls or hit a model-level issue.`
+                : "";
 
               const lines = [
                 `🏛️ ${icon} ${status.id.toUpperCase()} (${status.model.model}) — ${finishedCount}/${totalMembers} done${duration ? ` (${duration})` : ""}`,
@@ -90,6 +99,8 @@ export default function (pi: ExtensionAPI) {
                   : status.error
                     ? `Error: ${status.error}`
                     : "(no output)",
+                emptyWarning,
+                thinkingNote,
                 ``,
                 `Full result: ${memberFile}`,
               ];
@@ -122,8 +133,8 @@ export default function (pi: ExtensionAPI) {
           const succeeded = result.members.filter(m => m.state === "done").length;
           const failedCount = result.members.filter(m => m.state !== "done").length;
           const totalDuration = Math.max(...result.members.map(m => m.durationMs ?? 0));
-          const totalCost = result.members.reduce((sum, m) => sum + (m.stats?.cost ?? 0), 0);
-          const totalTokens = result.members.reduce((sum, m) => sum + (m.stats?.tokens?.total ?? 0), 0);
+          const totalCost = result.members.reduce((sum, m) => sum + ((m.stats as any)?.cost ?? 0), 0);
+          const totalTokens = result.members.reduce((sum, m) => sum + ((m.stats as any)?.tokens?.total ?? 0), 0);
 
           const costLine = totalCost > 0 ? `\n- total cost: $${totalCost.toFixed(4)}` : "";
           const tokensLine = totalTokens > 0 ? `\n- total tokens: ${totalTokens}` : "";
@@ -162,6 +173,9 @@ export default function (pi: ExtensionAPI) {
 
         if (config.systemPrompt) {
           spawnOptions.systemPrompt = config.systemPrompt;
+        }
+        if (config.memberTimeoutMs) {
+          spawnOptions.memberTimeoutMs = config.memberTimeoutMs;
         }
 
         if (params.models && params.models.length > 0) {
@@ -332,8 +346,13 @@ export default function (pi: ExtensionAPI) {
           const errMsg = m.error ? `\n    error: ${m.error}` : "";
           const stderrMsg = m.stderr ? `\n    stderr: ${m.stderr.slice(0, 200)}` : "";
           const outputLen = m.output ? `\n    output: ${m.output.length} chars` : "\n    output: (none)";
+          const thinkingLen = m.thinking ? `\n    thinking: ${m.thinking.length} chars` : "";
+          // Show tool call activity so mid-tool-call members don't look "stuck"
+          const toolCount = m.toolEvents?.length ?? 0;
+          const lastTool = toolCount > 0 ? (m.toolEvents[m.toolEvents.length - 1] as Record<string, unknown>)?.toolName : undefined;
+          const toolInfo = toolCount > 0 ? `\n    tools: ${toolCount} calls${lastTool ? ` (last: ${lastTool})` : ""}` : "";
           const outputPreview = m.output ? `\n    preview: ${m.output.slice(0, 120).replace(/\n/g, " ")}` : "";
-          return `${icon} ${m.id} (${m.model.model}): ${m.state}${elapsed}${streaming}${errMsg}${stderrMsg}${outputLen}${outputPreview}`;
+          return `${icon} ${m.id} (${m.model.model}): ${m.state}${elapsed}${streaming}${errMsg}${stderrMsg}${outputLen}${thinkingLen}${toolInfo}${outputPreview}`;
         }),
       ];
 
@@ -373,12 +392,14 @@ export default function (pi: ExtensionAPI) {
             ? `${((Date.now() - status.startedAt) / 1000).toFixed(0)}s elapsed`
             : "";
 
+        const thinking = member.getThinking();
         const sections = [
           `## ${params.memberId.toUpperCase()} (${status.model.model}) — ${status.state}${elapsed ? ` (${elapsed})` : ""}`,
           status.isStreaming ? `\n*Currently streaming*` : "",
           status.stderr ? `\n### stderr\n\`\`\`\n${status.stderr}\n\`\`\`` : "",
           status.error ? `\n### error\n${status.error}` : "",
           `\n### output (${output.length} chars)\n${output || "(no output yet)"}`,
+          thinking ? `\n### thinking (${thinking.length} chars)\n${thinking}` : "",
         ].filter(Boolean).join("\n");
 
         return {

@@ -19,7 +19,7 @@ One model can be wrong. Different models are wrong about **different things**. B
 ## Install
 
 ```bash
-pi install git+https://github.com/sshkeda/pi-council.git
+pi install https://github.com/sshkeda/pi-council.git
 ```
 
 ## Extension Tools

@@ -59,7 +59,12 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "rm -rf dist && tsc",
-    "dev": "node --import tsx src/cli.ts"
+    "dev": "node --import tsx src/cli.ts",
+    "test": "npm run build && node tests/council.test.mjs",
+    "test:e2e": "npm run build && node tests/e2e-extension.test.mjs && node tests/e2e-cli.test.mjs",
+    "test:e2e:ext": "npm run build && node tests/e2e-extension.test.mjs",
+    "test:e2e:cli": "npm run build && node tests/e2e-cli.test.mjs",
+    "test:all": "npm run build && node tests/council.test.mjs && node tests/e2e-extension.test.mjs && node tests/e2e-cli.test.mjs"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",

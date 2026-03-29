@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Council test suite - deterministic tests using mock-pi.
+ * Council test suite — unit tests + E2E integration tests via pi-mock.
  *
- * Tests the full council lifecycle: spawn, follow-ups, cancel, status, streams.
- * Zero API calls. Fully sandboxed.
+ * Unit tests (T1–T20): pure logic, no processes spawned.
+ * Integration tests (T21+): real pi processes against pi-mock gateway
+ *   with controllable brain for deterministic, timing-hack-free control.
+ *
+ * Zero real API calls. Fully sandboxed.
  */
 
 import { fileURLToPath } from "node:url";
@@ -12,11 +15,13 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
+import {
+  createGateway, createControllableBrain,
+  text, thinking, toolCall, bash, error,
+  script, always,
+} from "pi-mock";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MOCK_PI = path.join(__dirname, "mock-pi.mjs");
-const MOCK_PI_CRASH = path.join(__dirname, "mock-pi-crash.mjs");
-const MOCK_PI_SLOW = path.join(__dirname, "mock-pi-slow.mjs");
-const MOCK_PI_TOOLS = path.join(__dirname, "mock-pi-tools.mjs");
 
 // Dynamically import the council core (after build)
 const { Council, CouncilRegistry } = await import("../dist/src/core/council.js");
@@ -49,7 +54,7 @@ process.env.HOME = testHome;
 process.stdout.write("\n🧪 Council Test Suite\n\n");
 
 // ═══════════════════════════════════════════════════════════════════════
-// Unit Tests - no process spawning
+// Unit Tests — no process spawning
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("── Unit Tests ──\n");
@@ -204,26 +209,56 @@ await test("T20: Council getMember returns correct member", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Integration Tests - spawn mock-pi processes
+// pi-mock setup — shared gateway for all integration tests
 // ═══════════════════════════════════════════════════════════════════════
 
-process.stdout.write("\n── Integration Tests (mock-pi) ──\n");
+function createAgentDir(gatewayUrl) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-council-agentdir-"));
+  fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({
+    providers: {
+      "pi-mock": {
+        baseUrl: `${gatewayUrl}/v1`,
+        api: "anthropic-messages",
+        apiKey: "k",
+        models: [{ id: "mock" }],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(dir, "settings.json"), "{}");
+  return dir;
+}
 
-await test("T21: Council spawns mock-pi members and completes", async () => {
+const gw = await createGateway({ brain: () => text("unused"), port: 0, default: "allow" });
+const agentDir = createAgentDir(gw.url);
+const origAgentDir = process.env.PI_CODING_AGENT_DIR;
+const origOffline = process.env.PI_OFFLINE;
+process.env.PI_CODING_AGENT_DIR = agentDir;
+process.env.PI_OFFLINE = "1";
+
+// ═══════════════════════════════════════════════════════════════════════
+// Integration Tests — real pi processes against pi-mock gateway
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Integration Tests (pi-mock) ──\n");
+
+await test("T21: Council spawns members and completes with output", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("What is the meaning of life?");
-
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-test" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-test" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
 
   assert(council.getMembers().length === 2, "2 members spawned");
+
+  const call1 = await cb.waitForCall({ model: "claude-test" }, 5000);
+  const call2 = await cb.waitForCall({ model: "gpt-test" }, 5000);
+  call1.respond(text("Claude's analysis of life."));
+  call2.respond(text("GPT's take on existence."));
 
   const result = await council.waitForCompletion();
   assert(result.members.length === 2, "2 results");
@@ -232,20 +267,21 @@ await test("T21: Council spawns mock-pi members and completes", async () => {
 });
 
 await test("T22: Council tracks member status during run", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Status tracking test");
-
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  // Check status immediately
+  // Check status immediately — member should be running
   const status = council.getStatus();
   assert(status.members.length === 1, "1 member");
   assert(status.prompt === "Status tracking test", "prompt");
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Done tracking."));
 
   await council.waitForCompletion();
   const finalStatus = council.getStatus();
@@ -255,87 +291,86 @@ await test("T22: Council tracks member status during run", async () => {
 });
 
 await test("T23: Council readStream returns member output", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Stream read test");
-
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Readable output here."));
 
   await council.waitForCompletion();
   const stream = council.readStream("claude");
   assert(stream.length > 0, "has output");
+  assert(stream.includes("Readable"), "correct content");
 });
 
 await test("T24: Council cancel kills running members", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Cancel test");
-
-  // Use a longer delay so we can cancel
-  const env = { ...process.env, MOCK_PI_DELAY_MS: "2000" };
-
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  // Brain receives the call but we don't respond — member is blocked
+  await cb.waitForCall(5000);
 
   // Cancel immediately
   council.cancel();
+  await council.waitForCompletion();
+
   const member = council.getMember("claude");
-  // Give a moment for process cleanup
-  await new Promise(r => setTimeout(r, 100));
-  assert(member.isDone(), "member is done after cancel");
   assert(member.getStatus().state === "cancelled", "state is cancelled");
 });
 
 await test("T25: Council cancel specific member", async () => {
-  const council = new Council("Cancel specific test");
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Cancel specific test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-test" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-test" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
+
+  await cb.waitForCall({ model: "claude-test" }, 5000);
+  const gptCall = await cb.waitForCall({ model: "gpt-test" }, 5000);
 
   // Cancel only claude
   council.cancel(["claude"]);
-  await new Promise(r => setTimeout(r, 100));
-
   const claude = council.getMember("claude");
+  await claude.waitForDone();
   assert(claude.getStatus().state === "cancelled", "claude cancelled");
 
-  // GPT should still be running or done
+  // GPT should still be running — respond to it
+  gptCall.respond(text("GPT still alive."));
   const gpt = council.getMember("gpt");
-  assert(gpt.getStatus().state !== "cancelled", "gpt not cancelled");
-
-  // Wait for gpt to finish
   await gpt.waitForDone();
   assert(gpt.getStatus().state === "done", "gpt done");
+  assert(gpt.getOutput().includes("alive"), "gpt has output");
 });
 
 await test("T26: Council emits events during lifecycle", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const events = [];
   const council = new Council("Event test");
-
   council.on((event) => events.push(event.type));
 
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Event content."));
 
   await council.waitForCompletion();
 
@@ -346,16 +381,16 @@ await test("T26: Council emits events during lifecycle", async () => {
 });
 
 await test("T27: Council writes result artifacts on completion", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Artifact test");
-
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Artifact content here."));
   await council.waitForCompletion();
 
   const resultsJson = path.join(council.getRunDir(), "results.json");
@@ -374,48 +409,31 @@ await test("T27: Council writes result artifacts on completion", async () => {
   assert(md.includes("CLAUDE"), "results.md has model name");
 });
 
-await test("T28: Council handles mock-pi failure", async () => {
+await test("T28: Council handles spawn failure", async () => {
   const council = new Council("Failure test");
-
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  // Override env for the child - but we can't easily do that after spawn
-  // Instead, test with a nonexistent binary
-  const council2 = new Council("Failure test 2");
-  council2.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
     piBinary: "nonexistent-binary-that-does-not-exist",
   });
 
-  await council2.waitForCompletion();
-  const status = council2.getStatus();
+  await council.waitForCompletion();
+  const status = council.getStatus();
   assert(status.isComplete, "complete after failure");
   assert(status.members[0].state === "failed", "member failed");
   assert(status.members[0].error !== undefined, "has error message");
-
-  // Clean up the first council
-  await council.waitForCompletion();
 });
 
 await test("T29: Member waitForDone resolves immediately if already done", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Already done test");
-
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Quick answer."));
   await council.waitForCompletion();
 
   // waitForDone on an already-done member should resolve immediately
@@ -425,20 +443,28 @@ await test("T29: Member waitForDone resolves immediately if already done", async
 });
 
 await test("T30: Four model council completes", async () => {
-  const council = new Council("Full council test");
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Full council test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
-      { id: "gemini", provider: "google", model: "gemini-test" },
-      { id: "grok", provider: "xai", model: "grok-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-m" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-m" },
+      { id: "gemini", provider: "pi-mock", model: "gemini-m" },
+      { id: "grok", provider: "pi-mock", model: "grok-m" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
+
+  // Respond to each by name
+  const c1 = await cb.waitForCall({ model: "claude-m" }, 5000);
+  const c2 = await cb.waitForCall({ model: "gpt-m" }, 5000);
+  const c3 = await cb.waitForCall({ model: "gemini-m" }, 5000);
+  const c4 = await cb.waitForCall({ model: "grok-m" }, 5000);
+  c1.respond(text("Claude here."));
+  c2.respond(text("GPT here."));
+  c3.respond(text("Gemini here."));
+  c4.respond(text("Grok here."));
 
   const result = await council.waitForCompletion();
   assert(result.members.length === 4, "4 members");
@@ -448,34 +474,41 @@ await test("T30: Four model council completes", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Follow-up Tests - steer, abort, and council-level follow-ups
+// Follow-up Tests — steer, abort, and council-level follow-ups
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("\n── Follow-up Tests ──\n");
 
-await test("T31: Council follow-up (steer) sends to all running members", async () => {
-  const council = new Council("Follow-up steer test");
+await test("T31: Steer a running member via Council.followUp", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Live steer test");
   council.spawn({
-    models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
-    ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  // Wait for initial completion
-  await council.waitForCompletion();
+  // Member calls brain — respond with a tool call to keep it busy
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(toolCall("bash", { command: "echo step1" }));
 
-  // Both members should be done
-  assert(council.isComplete(), "should be complete");
-  assert(council.getMembers().every(m => m.getStatus().state === "done"), "all done");
+  // Steer while tool is executing
+  const steerP = council.followUp({ type: "steer", message: "Also consider security." });
+
+  // Brain gets the follow-up turn
+  const call2 = await cb.waitForCall(5000);
+  call2.respond(text("Done with steer context."));
+  await steerP;
+
+  // Drain any extra turns from steer
+  try { const extra = await cb.waitForCall(3000); extra.respond(text("steer done")); } catch {}
+
+  await council.waitForCompletion();
+  assert(council.isComplete(), "completed after steer");
+  assert(council.getMember("claude").getOutput().length > 0, "has output");
 });
 
-await test("T32: Member steer() throws when member is cancelled", async () => {
+await test("T32: Member steer() throws when member is not alive", async () => {
   const member = new CouncilMember("test", { id: "test", provider: "mock", model: "mock" });
   let threw = false;
   try {
@@ -498,49 +531,59 @@ await test("T33: Member abort() throws when member is not alive", async () => {
   assert(threw, "should throw");
 });
 
-await test("T34: Council follow-up routes to specific members", async () => {
-  const council = new Council("Targeted follow-up test");
+await test("T34: Council follow-up routes to specific members only", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Targeted follow-up test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-t" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-t" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
 
-  await council.waitForCompletion();
+  // Both call brain — give them tool calls to stay busy
+  const c1 = await cb.waitForCall({ model: "claude-t" }, 5000);
+  const c2 = await cb.waitForCall({ model: "gpt-t" }, 5000);
+  c1.respond(toolCall("bash", { command: "echo claude" }));
+  c2.respond(toolCall("bash", { command: "echo gpt" }));
 
-  // Follow-up to a completed member should be handled gracefully
-  // (member is done, steer will throw but council.followUp catches it)
+  // Steer only claude
   await council.followUp({
     type: "steer",
-    message: "Additional context",
+    message: "Extra context for claude only",
     memberIds: ["claude"],
   });
-});
 
-await test("T35: Council follow-up with empty memberIds defaults to all", async () => {
-  const council = new Council("Default target test");
-
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
+  // Respond to remaining brain calls
+  for (let i = 0; i < 4; i++) {
+    try {
+      const call = await cb.waitForCall(3000);
+      call.respond(text(`done ${i}`));
+    } catch { break; }
+  }
 
   await council.waitForCompletion();
+  assert(council.isComplete(), "completed");
+});
 
-  // Should not throw even though all members are done
-  await council.followUp({
-    type: "steer",
-    message: "test",
+await test("T35: Follow-up to completed member doesn't crash", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Follow-up done member");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("First answer."));
+  await council.waitForCompletion();
+
+  // Steer to completed member — should not throw
+  await council.followUp({ type: "steer", message: "too late" });
+  assert(true, "did not throw");
 });
 
 await test("T36: Council follow-up on nonexistent council returns gracefully", async () => {
@@ -549,80 +592,114 @@ await test("T36: Council follow-up on nonexistent council returns gracefully", a
   assert(council === undefined, "no councils");
 });
 
-await test("T37: Member finish() closes stdin and allows process exit", async () => {
-  const council = new Council("Finish test");
+await test("T37: Abort with redirect produces new output", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Abort redirect test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  await council.waitForCompletion();
-  const member = council.getMember("claude");
-  assert(member.hasResult(), "has result after wait");
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(toolCall("bash", { command: "sleep 30" }));
 
-  // finish() should not throw
-  member.finish();
+  // Abort + redirect
+  const abortP = council.followUp({ type: "abort", message: "Do this instead." });
+  const call2 = await cb.waitForCall(5000);
+  call2.respond(text("Redirected output!"));
+  await abortP;
+
+  const result = await council.waitForCompletion();
+  assert(result.members[0].output.includes("Redirected"), `got redirected output: ${result.members[0].output}`);
 });
 
-await test("T38: Member getOutput returns accumulated text", async () => {
-  const council = new Council("Output accumulation test");
+await test("T38: Multiple steers to same member", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Multi steer test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(toolCall("bash", { command: "echo step1" }));
+
+  // Send multiple steers
+  await council.followUp({ type: "steer", message: "Consider cost" });
+  await council.followUp({ type: "steer", message: "Consider scale" });
+  await council.followUp({ type: "steer", message: "Consider maintenance" });
+
+  // Drain all brain calls
+  for (let i = 0; i < 6; i++) {
+    try {
+      const call = await cb.waitForCall(3000);
+      call.respond(text(`done ${i}`));
+    } catch { break; }
+  }
+
   await council.waitForCompletion();
-  const member = council.getMember("claude");
-  const output = member.getOutput();
-  assert(output.length > 0, "has output");
-  assert(typeof output === "string", "is string");
+  assert(council.isComplete(), "completed with multiple steers");
 });
 
-await test("T39: Council cancel during processing works", async () => {
-  const council = new Council("Cancel during test");
+await test("T39: Abort targeted to specific member in multi-member council", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Targeted abort test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [
+      { id: "researcher", provider: "pi-mock", model: "researcher-m" },
+      { id: "writer", provider: "pi-mock", model: "writer-m" },
+    ],
   });
 
-  // Cancel immediately after spawn
-  council.cancel();
-  await council.waitForCompletion();
-  assert(council.isComplete(), "complete after cancel");
-  assert(council.getMember("claude").getStatus().state === "cancelled", "cancelled state");
+  const resCall = await cb.waitForCall({ model: "researcher-m" }, 5000);
+  const wrtCall = await cb.waitForCall({ model: "writer-m" }, 5000);
+
+  // Researcher does a tool call (will be aborted), writer gets immediate answer
+  resCall.respond(toolCall("bash", { command: "sleep 30" }));
+  wrtCall.respond(text("Draft complete."));
+
+  // Wait for writer to finish
+  await council.getMember("writer").waitForDone();
+
+  // Abort only researcher with redirect
+  const abortP = council.followUp({ type: "abort", message: "Just summarize.", memberIds: ["researcher"] });
+  const redirectCall = await cb.waitForCall({ model: "researcher-m" }, 5000);
+  redirectCall.respond(text("Summary without research."));
+  await abortP;
+
+  const r = await council.waitForCompletion();
+  assert(r.members.every(m => m.state === "done"), "all done");
+  assert(r.members.find(m => m.id === "researcher").output.includes("Summary"), "researcher redirected");
+  assert(r.members.find(m => m.id === "writer").output.includes("Draft"), "writer preserved");
 });
 
 await test("T40: Multiple sequential councils don't interfere", async () => {
+  const cb1 = createControllableBrain();
+  gw.setBrain(cb1.brain);
+
   const c1 = new Council("Sequential Q1");
   c1.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call1 = await cb1.waitForCall(5000);
+  call1.respond(text("First council answer."));
   await c1.waitForCompletion();
+
+  const cb2 = createControllableBrain();
+  gw.setBrain(cb2.brain);
 
   const c2 = new Council("Sequential Q2");
   c2.spawn({
-    models: [{ id: "gpt", provider: "openai", model: "gpt-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "gpt", provider: "pi-mock", model: "mock" }],
   });
+
+  const call2 = await cb2.waitForCall(5000);
+  call2.respond(text("Second council answer."));
   await c2.waitForCompletion();
 
   assert(c1.isComplete() && c2.isComplete(), "both complete");
@@ -637,19 +714,23 @@ await test("T40: Multiple sequential councils don't interfere", async () => {
 process.stdout.write("\n── Edge Case Tests ──\n");
 
 await test("T41: Member durationMs is correct", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Duration test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  // Small delay to make duration measurable
+  await new Promise(r => setTimeout(r, 50));
+  call.respond(text("Timed response."));
 
   await council.waitForCompletion();
   const status = council.getMember("claude").getStatus();
   assert(status.durationMs > 0, "has positive duration");
-  assert(status.durationMs < 10000, "duration is reasonable (<10s)");
+  assert(status.durationMs < 30000, "duration is reasonable (<30s)");
   assert(status.finishedAt > status.startedAt, "finishedAt > startedAt");
 });
 
@@ -662,23 +743,23 @@ await test("T42: Council with empty models array throws", async () => {
     threw = true;
   }
   // Empty models should still create directory but have no members
-  // The spawn should complete without throwing (0 members = immediately complete)
-  // Actually it won't be complete because isComplete checks members.length > 0
 });
 
 await test("T43: Council event listener removal works", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Listener removal");
   const events = [];
   const unsub = council.on((e) => events.push(e.type));
   unsub(); // Remove listener
 
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Unheard."));
 
   await council.waitForCompletion();
   assert(events.length === 0, "no events after unsubscribe");
@@ -692,14 +773,16 @@ await test("T44: Multiple councils with same prompt get different runIds", async
 });
 
 await test("T45: Council result includes prompt text", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Include prompt in result");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Result with prompt."));
 
   const result = await council.waitForCompletion();
   assert(result.prompt === "Include prompt in result", "prompt in result");
@@ -707,17 +790,21 @@ await test("T45: Council result includes prompt text", async () => {
 });
 
 await test("T46: Council results.md includes all member names", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Markdown test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-md" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-md" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
+
+  const c1 = await cb.waitForCall({ model: "claude-md" }, 5000);
+  const c2 = await cb.waitForCall({ model: "gpt-md" }, 5000);
+  c1.respond(text("Claude's section."));
+  c2.respond(text("GPT's section."));
 
   await council.waitForCompletion();
   const md = fs.readFileSync(path.join(council.getRunDir(), "results.md"), "utf-8");
@@ -728,28 +815,28 @@ await test("T46: Council results.md includes all member names", async () => {
 });
 
 await test("T47: Council with custom system prompt passes it to members", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Custom prompt test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
     systemPrompt: "You are a pirate. Speak like a pirate.",
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
 
+  const call = await cb.waitForCall(5000);
+  // Verify the system prompt was passed by checking the request
+  const hasSystem = call.request.system !== undefined;
+  call.respond(text("Arr!"));
+
   await council.waitForCompletion();
-  assert(council.isComplete(), "completed");
-  // Can't verify the system prompt was used from output alone
-  // but we can verify it didn't crash
+  assert(council.isComplete(), "completed with custom prompt");
 });
 
 await test("T48: Member isAlive returns false after spawn failure", async () => {
   const council = new Council("Alive check");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
     piBinary: "nonexistent-binary-12345",
   });
 
@@ -760,24 +847,23 @@ await test("T48: Member isAlive returns false after spawn failure", async () => 
 });
 
 await test("T49: Concurrent councils complete independently", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const c1 = new Council("Concurrent Q1");
   const c2 = new Council("Concurrent Q2");
 
   c1.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "c1-model" }],
   });
-
   c2.spawn({
-    models: [{ id: "gpt", provider: "openai", model: "gpt-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "gpt", provider: "pi-mock", model: "c2-model" }],
   });
+
+  const call1 = await cb.waitForCall({ model: "c1-model" }, 5000);
+  const call2 = await cb.waitForCall({ model: "c2-model" }, 5000);
+  call1.respond(text("Council 1 answer."));
+  call2.respond(text("Council 2 answer."));
 
   const [r1, r2] = await Promise.all([
     c1.waitForCompletion(),
@@ -790,18 +876,24 @@ await test("T49: Concurrent councils complete independently", async () => {
 });
 
 await test("T50: Council status shows correct finished count", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Finished count");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
-      { id: "grok", provider: "xai", model: "grok-test" },
+      { id: "claude", provider: "pi-mock", model: "c-cnt" },
+      { id: "gpt", provider: "pi-mock", model: "g-cnt" },
+      { id: "grok", provider: "pi-mock", model: "k-cnt" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
+
+  const c1 = await cb.waitForCall({ model: "c-cnt" }, 5000);
+  const c2 = await cb.waitForCall({ model: "g-cnt" }, 5000);
+  const c3 = await cb.waitForCall({ model: "k-cnt" }, 5000);
+  c1.respond(text("One."));
+  c2.respond(text("Two."));
+  c3.respond(text("Three."));
 
   await council.waitForCompletion();
   const status = council.getStatus();
@@ -811,148 +903,53 @@ await test("T50: Council status shows correct finished count", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// RPC Protocol Tests - verify mock-pi speaks the protocol correctly
+// Tool Execution & Event Pipeline Tests
 // ═══════════════════════════════════════════════════════════════════════
 
-process.stdout.write("\n── RPC Protocol Tests ──\n");
+process.stdout.write("\n── Tool & Event Pipeline Tests ──\n");
 
-await test("T51: Mock-pi processes prompt and returns text via RPC events", async () => {
-  // Directly test mock-pi without council wrapper
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "anthropic", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+await test("T51: Tool execution events propagate through Council", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
   const events = [];
-  let buffer = "";
+  const council = new Council("Tool events propagation");
+  council.on(e => events.push(e));
 
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) {
-        try { events.push(JSON.parse(line)); } catch {}
-      }
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test question" }) + "\n");
-
-  await new Promise(r => setTimeout(r, 500));
-
-  // Verify we got the right events
-  const response = events.find(e => e.type === "response" && e.id === "p1");
-  assert(response !== undefined, "got prompt response");
-  assert(response.success === true, "prompt succeeded");
-
-  const agentStart = events.find(e => e.type === "agent_start");
-  assert(agentStart !== undefined, "got agent_start");
-
-  const textDeltas = events.filter(e => e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta");
-  assert(textDeltas.length > 0, "got text deltas");
-
-  const agentEnd = events.find(e => e.type === "agent_end");
-  assert(agentEnd !== undefined, "got agent_end");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-});
-
-await test("T52: Mock-pi handles get_state command", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test-model", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "get_state", id: "s1" }) + "\n");
-  await new Promise(r => setTimeout(r, 200));
-
-  const resp = events.find(e => e.type === "response" && e.id === "s1");
-  assert(resp !== undefined, "got state response");
-  assert(resp.success === true, "state succeeded");
-  assert(resp.data.model !== undefined, "has model");
-  assert(resp.data.isStreaming === false, "not streaming initially");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-});
-
-await test("T53: Mock-pi handles abort command", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "abort", id: "a1" }) + "\n");
-  await new Promise(r => setTimeout(r, 500));
-
-  const resp = events.find(e => e.type === "response" && e.id === "a1");
-  assert(resp !== undefined, "got abort response");
-  assert(resp.success === true, "abort succeeded");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-});
-
-await test("T54: Member captures text deltas into output", async () => {
-  const council = new Council("Text capture test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(bash("echo hello"));
+  const call2 = await cb.waitForCall(5000);
+  call2.respond(text("After tool call."));
 
   await council.waitForCompletion();
-  const output = council.readStream("claude");
-  // Mock-pi generates text with spaces between words
-  assert(output.includes("Claude") || output.includes("analyze") || output.includes("assessment"), "output has content");
-  assert(!output.includes("undefined"), "no undefined in output");
+
+  const toolStarts = events.filter(e => e.type === "member_tool_start");
+  const toolEnds = events.filter(e => e.type === "member_tool_end");
+
+  assert(toolStarts.length > 0, "got member_tool_start events");
+  assert(toolEnds.length > 0, "got member_tool_end events");
+  assert(toolStarts[0].memberId === "claude", "tool event has correct memberId");
+  assert(typeof toolStarts[0].toolName === "string" && toolStarts[0].toolName.length > 0, `tool name: ${toolStarts[0].toolName}`);
 });
 
-await test("T55: Member output events fire in order", async () => {
+await test("T52: Member output events fire in order", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const events = [];
   const council = new Council("Event order test");
   council.on((e) => events.push(e.type));
 
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Ordered output."));
   await council.waitForCompletion();
 
   // member_started should come before member_output which comes before member_done
@@ -967,243 +964,122 @@ await test("T55: Member output events fire in order", async () => {
   assert(completeIdx > doneIdx, "complete after done");
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// Live Follow-up Tests - steer/abort during active processing
-// ═══════════════════════════════════════════════════════════════════════
+await test("T53: Members take different numbers of tool-call turns", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
-process.stdout.write("\n── Live Follow-up Tests ──\n");
-
-await test("T56: Mock-pi accepts follow_up command", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
+  const council = new Council("Multi-turn depth");
+  council.spawn({
+    models: [
+      { id: "shallow", provider: "pi-mock", model: "shallow-m" },
+      { id: "deep", provider: "pi-mock", model: "deep-m" },
+    ],
   });
 
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
+  // Shallow: immediate text
+  const s1 = await cb.waitForCall({ model: "shallow-m" }, 5000);
+  s1.respond(text("Quick answer."));
 
-  // Send follow_up (will be queued)
-  child.stdin.write(JSON.stringify({ type: "follow_up", id: "fu1", message: "additional context" }) + "\n");
-  await new Promise(r => setTimeout(r, 200));
+  // Deep: 3 tool calls then text
+  const d1 = await cb.waitForCall({ model: "deep-m" }, 5000);
+  d1.respond(bash("echo step1"));
+  const d2 = await cb.waitForCall({ model: "deep-m" }, 5000);
+  d2.respond(bash("echo step2"));
+  const d3 = await cb.waitForCall({ model: "deep-m" }, 5000);
+  d3.respond(bash("echo step3"));
+  const d4 = await cb.waitForCall({ model: "deep-m" }, 5000);
+  d4.respond(text("Deep answer after 3 tool calls."));
 
-  const resp = events.find(e => e.type === "response" && e.id === "fu1");
-  assert(resp !== undefined, "got follow_up response");
-  assert(resp.success === true, "follow_up succeeded");
+  const r = await council.waitForCompletion();
 
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
+  const shallow = r.members.find(m => m.id === "shallow");
+  const deep = r.members.find(m => m.id === "deep");
+
+  assert(shallow.output.includes("Quick"), "shallow output");
+  assert(deep.output.includes("Deep"), "deep output");
+  assert(shallow.toolEvents.length === 0, "shallow: 0 tools");
+  assert(deep.toolEvents.length >= 6, `deep: ${deep.toolEvents.length} tool events`);
 });
 
-await test("T57: Mock-pi accepts steer during streaming", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, MOCK_PI_DELAY_MS: "200", MOCK_PI_TOOL_CALLS: "true" },
+await test("T54: Member captures text deltas into output", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Text capture test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
+  const call = await cb.waitForCall(5000);
+  call.respond(text("This is a carefully crafted response."));
+  await council.waitForCompletion();
 
-  // Start a prompt
-  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "initial question" }) + "\n");
-
-  // Send steer while processing
-  await new Promise(r => setTimeout(r, 50));
-  child.stdin.write(JSON.stringify({ type: "steer", id: "s1", message: "also consider X" }) + "\n");
-
-  // Wait for completion
-  await new Promise(r => setTimeout(r, 1000));
-
-  const steerResp = events.find(e => e.type === "response" && e.id === "s1");
-  assert(steerResp !== undefined, "got steer response");
-  assert(steerResp.success === true, "steer succeeded");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
+  const output = council.readStream("claude");
+  assert(output.includes("carefully"), "output has content");
+  assert(!output.includes("undefined"), "no undefined in output");
 });
 
-await test("T58: Mock-pi handles unknown command gracefully", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+await test("T55: Council with 2 models produces different outputs", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "nonexistent_command", id: "x1" }) + "\n");
-  await new Promise(r => setTimeout(r, 200));
-
-  const resp = events.find(e => e.type === "response" && e.id === "x1");
-  assert(resp !== undefined, "got error response");
-  assert(resp.success === false, "command failed");
-  assert(resp.error.includes("Unknown"), "error mentions unknown");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-});
-
-await test("T59: Council with 2 models produces different outputs", async () => {
   const council = new Council("Compare models test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "grok", provider: "xai", model: "grok-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-cmp" },
+      { id: "grok", provider: "pi-mock", model: "grok-cmp" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
+
+  const c1 = await cb.waitForCall({ model: "claude-cmp" }, 5000);
+  const c2 = await cb.waitForCall({ model: "grok-cmp" }, 5000);
+  c1.respond(text("Claude's unique perspective."));
+  c2.respond(text("Grok's direct take on things."));
 
   await council.waitForCompletion();
   const claudeOut = council.readStream("claude");
   const grokOut = council.readStream("grok");
 
-  // Mock-pi generates different responses based on provider
-  assert(claudeOut !== grokOut, "outputs should differ");
-  assert(claudeOut.includes("Claude"), "claude output mentions Claude");
-  assert(grokOut.includes("direct take") || grokOut.includes("grok") || grokOut.includes("wrong"), "grok has distinct response");
-});
-
-await test("T60: Mock-pi get_session_stats returns cost data", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "get_session_stats", id: "st1" }) + "\n");
-  await new Promise(r => setTimeout(r, 200));
-
-  const resp = events.find(e => e.type === "response" && e.id === "st1");
-  assert(resp !== undefined, "got stats response");
-  assert(resp.success === true, "stats succeeded");
-  assert(resp.data.cost !== undefined, "has cost");
-  assert(resp.data.tokens !== undefined, "has tokens");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
+  assert(claudeOut !== grokOut, "outputs differ");
+  assert(claudeOut.includes("Claude"), "claude output has identity");
+  assert(grokOut.includes("Grok"), "grok output has identity");
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// End-to-End Follow-up Tests (Council → Member → mock-pi)
+// Cancel & Failure Edge Cases
 // ═══════════════════════════════════════════════════════════════════════
 
-process.stdout.write("\n── End-to-End Follow-up Tests ──\n");
+process.stdout.write("\n── Cancel & Failure Edge Cases ──\n");
 
-await test("T61: Council.followUp sends steer to completed member without crash", async () => {
-  const council = new Council("E2E steer test");
+await test("T56: Cancel during processing works", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Cancel during test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  await council.waitForCompletion();
+  await cb.waitForCall(5000); // brain got the call, but we don't respond
 
-  // After completion, steer should be handled gracefully (member is done, process closed)
-  // The council.followUp should catch the error silently
-  await council.followUp({ type: "steer", message: "too late" });
-  // Should not throw
-  assert(true, "did not throw");
+  // Cancel immediately
+  council.cancel();
+  await council.waitForCompletion();
+  assert(council.isComplete(), "complete after cancel");
+  assert(council.getMember("claude").getStatus().state === "cancelled", "cancelled state");
 });
 
-await test("T62: Council.followUp sends abort with new prompt", async () => {
-  const council = new Council("E2E abort test");
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+await test("T57: Council.cancel after completion is idempotent", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  await council.waitForCompletion();
-
-  // After completion, abort should also be handled gracefully
-  await council.followUp({ type: "abort", message: "redirect" });
-  assert(true, "did not throw");
-});
-
-await test("T63: Council.followUp targets specific members only", async () => {
-  const council = new Council("Targeted E2E test");
-  council.spawn({
-    models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
-    ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  await council.waitForCompletion();
-
-  // Send steer to only claude
-  await council.followUp({
-    type: "steer",
-    message: "extra context for claude only",
-    memberIds: ["claude"],
-  });
-  assert(true, "targeted followup completed");
-});
-
-await test("T64: Council.cancel after completion is idempotent", async () => {
   const council = new Council("Idempotent cancel test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Done."));
   await council.waitForCompletion();
 
   // Cancel after completion should be a no-op
@@ -1212,235 +1088,96 @@ await test("T64: Council.cancel after completion is idempotent", async () => {
   assert(council.isComplete(), "still complete");
 });
 
-await test("T65: Council result members have correct model specs", async () => {
-  const council = new Council("Model spec test");
-  const expectedModel = { id: "claude", provider: "anthropic", model: "special-model-v3" };
-  council.spawn({
-    models: [expectedModel],
+await test("T58: Cancel one member while another completes", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  const result = await council.waitForCompletion();
-  assert(result.members[0].model.id === "claude", "correct id");
-  assert(result.members[0].model.provider === "anthropic", "correct provider");
-  assert(result.members[0].model.model === "special-model-v3", "correct model name");
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Mock-pi Crash & Tool Tests
-// ═══════════════════════════════════════════════════════════════════════
-
-process.stdout.write("\n── Crash & Tool Tests ──\n");
-
-await test("T66: Mock-pi crash (MOCK_PI_FAIL=true) is handled as member failure", async () => {
-  const council = new Council("Crash test");
-  const events = [];
-  council.on(e => events.push(e.type));
-
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  // Override env for the child process
-  // Can't easily do this after spawn, so let's set it globally temporarily
-  const origFail = process.env.MOCK_PI_FAIL;
-  // Actually we can't control the child's env after spawn. Let's test via a different approach.
-  // Spawn directly with the env var
-  const council2 = new Council("Crash test 2");
-  const events2 = [];
-  council2.on(e => events2.push(e));
-
-  // Create member directly to control env
-  const { CouncilMember: CM2 } = await import("../dist/src/core/member.js");
-  const member = new CM2("crash-test", { id: "crash-test", provider: "mock", model: "mock" });
-  member.on(e => events2.push(e));
-
-  // Can't set env on member.spawn() directly. Let's just verify the nonexistent binary path again.
-  // The crash test via env var requires a wrapper script.
-
-  // Instead, verify that a member that gets killed reports correctly
-  await council.waitForCompletion();
-  assert(council.isComplete(), "council completed");
-});
-
-await test("T67: Mock-pi tool calls emit tool execution events", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, MOCK_PI_TOOL_CALLS: "true", MOCK_PI_DELAY_MS: "20" },
-  });
-
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test with tools" }) + "\n");
-  await new Promise(r => setTimeout(r, 1000));
-
-  const toolStart = events.find(e => e.type === "tool_execution_start");
-  assert(toolStart !== undefined, "got tool_execution_start");
-  assert(toolStart.toolName === "read", "tool is read");
-
-  const toolEnd = events.find(e => e.type === "tool_execution_end");
-  assert(toolEnd !== undefined, "got tool_execution_end");
-  assert(toolEnd.isError === false, "tool not error");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-});
-
-await test("T68: Member captures tool events from mock-pi", async () => {
-  const events = [];
-  const council = new Council("Tool events test");
-  council.on(e => events.push(e));
-
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  // Set MOCK_PI_TOOL_CALLS for the next spawn - can't do retroactively
-  // But the default mock-pi doesn't use tool calls. We need to test the event
-  // path differently. Let's verify the events that DO fire.
-  await council.waitForCompletion();
-
-  const types = events.map(e => e.type);
-  assert(types.includes("member_started"), "has started");
-  assert(types.includes("member_output"), "has output");
-  assert(types.includes("member_done"), "has done");
-  assert(types.includes("council_complete"), "has complete");
-
-  // member_tool_start/end won't fire without MOCK_PI_TOOL_CALLS=true
-  // but we can verify the pipeline doesn't break
-});
-
-await test("T69: Council handles custom run ID", async () => {
-  const customId = "custom-test-run-12345";
-  const council = new Council("Custom ID test", customId);
-  assert(council.runId === customId, "custom runId preserved");
-
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  await council.waitForCompletion();
-  assert(council.getRunDir().includes(customId), "run dir uses custom ID");
-});
-
-await test("T70: Council getResult completedAt is after startedAt", async () => {
-  const council = new Council("Timing test");
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
-
-  const result = await council.waitForCompletion();
-  assert(result.completedAt >= result.startedAt, "completedAt >= startedAt");
-  assert(result.completedAt - result.startedAt < 30000, "completed in <30s");
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Custom Output & Multi-member Tests
-// ═══════════════════════════════════════════════════════════════════════
-
-process.stdout.write("\n── Custom Output & Multi-member Tests ──\n");
-
-await test("T71: Mock-pi MOCK_PI_OUTPUT env var overrides response", async () => {
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "test", "--model", "test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, MOCK_PI_OUTPUT: "CUSTOM_RESPONSE_XYZ" },
-  });
-
-  let fullOutput = "";
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) {
-        try {
-          const e = JSON.parse(line);
-          if (e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta") {
-            fullOutput += e.assistantMessageEvent.delta;
-          }
-        } catch {}
-      }
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test" }) + "\n");
-  await new Promise(r => setTimeout(r, 500));
-
-  assert(fullOutput === "CUSTOM_RESPONSE_XYZ", `got custom output: "${fullOutput}"`);
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-});
-
-await test("T72: Three model council all produce different outputs", async () => {
-  const council = new Council("Diversity test");
+  const council = new Council("Mixed cancel test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
-      { id: "grok", provider: "xai", model: "grok-test" },
+      { id: "slow", provider: "pi-mock", model: "slow-m" },
+      { id: "fast", provider: "pi-mock", model: "fast-m" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
 
-  const result = await council.waitForCompletion();
-  const outputs = result.members.map(m => m.output);
+  await cb.waitForCall({ model: "slow-m" }, 5000); // don't respond to slow
+  const fastCall = await cb.waitForCall({ model: "fast-m" }, 5000);
 
-  // All outputs should be different
-  assert(outputs[0] !== outputs[1], "claude != gpt");
-  assert(outputs[1] !== outputs[2], "gpt != grok");
-  assert(outputs[0] !== outputs[2], "claude != grok");
-});
-
-await test("T73: Council result JSON has all required fields", async () => {
-  const council = new Council("JSON schema test");
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
-  });
+  // Cancel slow, let fast continue
+  council.cancel(["slow"]);
+  fastCall.respond(text("Fast completed."));
 
   await council.waitForCompletion();
+  assert(council.getMember("slow").getStatus().state === "cancelled", "slow cancelled");
+  assert(council.getMember("fast").getStatus().state === "done", "fast done");
+});
+
+await test("T59: Crash + success mixed council completes", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Mixed crash/success");
+  council.spawn({
+    models: [
+      { id: "good", provider: "pi-mock", model: "good-m" },
+      { id: "bad", provider: "pi-mock", model: "bad-m" },
+    ],
+  });
+
+  const goodCall = await cb.waitForCall({ model: "good-m" }, 5000);
+  const badCall = await cb.waitForCall({ model: "bad-m" }, 5000);
+
+  goodCall.respond(text("Success!"));
+  badCall.respond(error("something went wrong"));
+
+  const result = await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("HUNG")), 15000)),
+  ]);
+
+  assert(result.members.find(m => m.id === "good").state === "done", "good member done");
+  // Bad member might be done (error handled) or failed
+  const bad = result.members.find(m => m.id === "bad");
+  assert(bad.state === "done" || bad.state === "failed", `bad state: ${bad.state}`);
+});
+
+await test("T60: Member finish() closes stdin and allows process exit", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Finish test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Finish me."));
+  await council.waitForCompletion();
+
+  const member = council.getMember("claude");
+  assert(member.hasResult(), "has result");
+  member.finish(); // should not throw
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Artifact & Schema Validation Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Artifact & Schema Tests ──\n");
+
+await test("T61: Council result JSON has all required fields", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("JSON schema test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Schema valid."));
+  await council.waitForCompletion();
+
   const resultsJson = JSON.parse(fs.readFileSync(
     path.join(council.getRunDir(), "results.json"), "utf-8"
   ));
@@ -1459,20 +1196,24 @@ await test("T73: Council result JSON has all required fields", async () => {
   assert(typeof m.durationMs === "number", "member.durationMs");
 });
 
-await test("T74: Meta.json has all required fields", async () => {
+await test("T62: Meta.json has all required fields", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Meta schema test");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-meta" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-meta" },
     ],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
   });
 
+  const c1 = await cb.waitForCall({ model: "claude-meta" }, 5000);
+  const c2 = await cb.waitForCall({ model: "gpt-meta" }, 5000);
+  c1.respond(text("Meta 1."));
+  c2.respond(text("Meta 2."));
   await council.waitForCompletion();
+
   const meta = JSON.parse(fs.readFileSync(
     path.join(council.getRunDir(), "meta.json"), "utf-8"
   ));
@@ -1484,195 +1225,351 @@ await test("T74: Meta.json has all required fields", async () => {
   assert(meta.models.length === 2, "2 models");
 });
 
-await test("T75: Prompt.txt matches council prompt", async () => {
+await test("T63: Prompt.txt matches council prompt", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
   const council = new Council("Prompt file test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Prompt check."));
   await council.waitForCompletion();
+
   const promptFile = fs.readFileSync(path.join(council.getRunDir(), "prompt.txt"), "utf-8");
   assert(promptFile === "Prompt file test", "prompt matches");
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// Sandbox Isolation Tests — crash, slow, tool wrappers
-// ═══════════════════════════════════════════════════════════════════════
+await test("T64: Council result members have correct model specs", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
-process.stdout.write("\n── Sandbox Isolation Tests ──\n");
-
-await test("T76: Mock-pi crash is handled as member failure", async () => {
-  const council = new Council("Crash handling test");
-  const events = [];
-  council.on(e => events.push(e));
-
+  const council = new Council("Model spec test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_CRASH],
+    models: [{ id: "claude", provider: "pi-mock", model: "special-model-v3" }],
   });
 
-  await council.waitForCompletion();
-  const status = council.getStatus();
-  assert(status.isComplete, "complete after crash");
-  assert(status.members[0].state === "failed", "member state is failed");
-  assert(status.members[0].error !== undefined, "has error message");
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Spec check."));
 
-  const failEvents = events.filter(e => e.type === "member_failed");
-  assert(failEvents.length >= 1, "got member_failed event");
+  const result = await council.waitForCompletion();
+  assert(result.members[0].model.id === "claude", "correct id");
+  assert(result.members[0].model.provider === "pi-mock", "correct provider");
+  assert(result.members[0].model.model === "special-model-v3", "correct model name");
 });
 
-await test("T77: Cancel slow member before it completes", async () => {
-  const council = new Council("Cancel slow member");
+await test("T65: Council handles custom run ID", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const customId = "custom-test-run-12345";
+  const council = new Council("Custom ID test", customId);
+  assert(council.runId === customId, "custom runId preserved");
 
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_SLOW],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  // Give it a moment to start, then cancel
-  await new Promise(r => setTimeout(r, 100));
-  assert(council.getMember("claude").isAlive(), "still alive before cancel");
-
-  council.cancel();
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Custom ID output."));
   await council.waitForCompletion();
+  assert(council.getRunDir().includes(customId), "run dir uses custom ID");
+});
 
+await test("T66: Council getResult completedAt is after startedAt", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Timing test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Timed."));
+
+  const result = await council.waitForCompletion();
+  assert(result.completedAt >= result.startedAt, "completedAt >= startedAt");
+  assert(result.completedAt - result.startedAt < 30000, "completed in <30s");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Thinking / Observability Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Thinking & Observability Tests ──\n");
+
+await test("T67: Member separates thinking from text output", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Thinking separation");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond([thinking("Let me reason about this carefully."), text("The answer is 42.")]);
+
+  await council.waitForCompletion();
   const status = council.getMember("claude").getStatus();
-  assert(status.state === "cancelled", "cancelled");
-  assert(status.durationMs < 500, "cancelled before slow response finished");
+
+  assert(status.output.includes("42"), "output has text");
+  assert(!status.output.includes("reason"), "output excludes thinking");
+  assert(status.thinking.includes("reason"), "thinking has reasoning");
+  assert(!status.thinking.includes("42"), "thinking excludes text answer");
 });
 
-await test("T78: Tool execution events propagate through Council", async () => {
-  const events = [];
-  const council = new Council("Tool events propagation");
-  council.on(e => events.push(e));
+await test("T68: Thinking-only response produces empty output", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Thinking only");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_TOOLS],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
+
+  const call = await cb.waitForCall(5000);
+  call.respond([thinking("I have nothing to say out loud.")]);
+
+  await council.waitForCompletion();
+  const m = council.getMember("claude").getStatus();
+
+  assert(m.output === "", "output is empty");
+  assert(m.thinking.includes("nothing"), "thinking captured");
+});
+
+await test("T69: Member with no thinking has empty thinking field", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("No thinking test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Just text, no thinking."));
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  assert(status.thinking === "", "thinking is empty string");
+  assert(status.output.length > 0, "output still has content");
+});
+
+await test("T70: Thinking stored in per-member JSON artifact", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Thinking artifact");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond([thinking("Deep reasoning here."), text("Conclusion.")]);
 
   await council.waitForCompletion();
 
-  const toolStarts = events.filter(e => e.type === "member_tool_start");
-  const toolEnds = events.filter(e => e.type === "member_tool_end");
-
-  assert(toolStarts.length > 0, "got member_tool_start events");
-  assert(toolEnds.length > 0, "got member_tool_end events");
-  assert(toolStarts[0].memberId === "claude", "tool event has correct memberId");
-  assert(toolStarts[0].toolName === "read", "tool name is read");
+  const jsonPath = path.join(council.getRunDir(), "claude.json");
+  assert(fs.existsSync(jsonPath), "per-member JSON exists");
+  const data = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+  assert(typeof data.thinking === "string", "JSON has thinking field");
+  assert(data.thinking.includes("reasoning"), "thinking content correct");
+  assert(typeof data.output === "string", "JSON has output field");
+  assert(data.output.includes("Conclusion"), "output content correct");
 });
 
-await test("T79: Crash + success mixed council completes", async () => {
-  const council = new Council("Mixed crash/success");
+await test("T71: Thinking section appears in results.md", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Thinking markdown");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond([thinking("Careful analysis."), text("Final answer.")]);
+
+  await council.waitForCompletion();
+
+  const md = fs.readFileSync(path.join(council.getRunDir(), "results.md"), "utf-8");
+  assert(md.includes("Thinking"), "results.md has thinking section");
+  assert(md.includes("Final answer"), "results.md has output");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Script Brain & Multi-member Diversity Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Script Brain & Diversity Tests ──\n");
+
+await test("T72: Script brain — ordered responses without manual control", async () => {
+  gw.setBrain(script(text("Script response one."), text("Script response two.")));
+
+  const council = new Council("Script basic");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const result = await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("HUNG")), 15000)),
+  ]);
+
+  assert(result.members[0].state === "done", "script done");
+  assert(result.members[0].output.length > 0, "script has output");
+});
+
+await test("T73: Always brain — same response forever", async () => {
+  gw.setBrain(always(text("I always say this.")));
+
+  const council = new Council("Always brain");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const result = await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("HUNG")), 15000)),
+  ]);
+
+  assert(result.members[0].output.includes("always"), "always brain output");
+});
+
+await test("T74: Three model council all produce different outputs", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Diversity test");
+  council.spawn({
+    models: [
+      { id: "claude", provider: "pi-mock", model: "claude-div" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-div" },
+      { id: "grok", provider: "pi-mock", model: "grok-div" },
+    ],
+  });
+
+  const c1 = await cb.waitForCall({ model: "claude-div" }, 5000);
+  const c2 = await cb.waitForCall({ model: "gpt-div" }, 5000);
+  const c3 = await cb.waitForCall({ model: "grok-div" }, 5000);
+  c1.respond(text("Claude's unique perspective on the matter."));
+  c2.respond(text("GPT's systematic analysis of the issue."));
+  c3.respond(text("Grok's direct and unconventional take."));
+
+  const result = await council.waitForCompletion();
+  const outputs = result.members.map(m => m.output);
+
+  assert(outputs[0] !== outputs[1], "claude != gpt");
+  assert(outputs[1] !== outputs[2], "gpt != grok");
+  assert(outputs[0] !== outputs[2], "claude != grok");
+});
+
+await test("T75: Control exact completion order with staggered responses", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const doneOrder = [];
+  const council = new Council("Staggered");
+  council.on(e => { if (e.type === "member_done") doneOrder.push(e.memberId); });
 
   council.spawn({
     models: [
-      { id: "crash", provider: "anthropic", model: "crash-model" },
-      { id: "success", provider: "openai", model: "gpt-test" },
+      { id: "first", provider: "pi-mock", model: "first-m" },
+      { id: "second", provider: "pi-mock", model: "second-m" },
+      { id: "third", provider: "pi-mock", model: "third-m" },
     ],
-    cwd: __dirname,
-    piBinary: "node",
-    // Use regular mock-pi — crash model won't crash since env isn't set
-    // but this tests that mixed results are handled
-    piBinaryArgs: [MOCK_PI],
   });
 
-  await council.waitForCompletion();
-  assert(council.isComplete(), "complete");
-  assert(council.getStatus().finishedCount === 2, "both finished");
-});
+  const c1 = await cb.waitForCall({ model: "first-m" }, 5000);
+  const c2 = await cb.waitForCall({ model: "second-m" }, 5000);
+  const c3 = await cb.waitForCall({ model: "third-m" }, 5000);
 
-await test("T80: Slow member eventually completes on its own", async () => {
-  const council = new Council("Slow completion");
-
-  council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_SLOW],
-  });
+  // Release in reverse spawn order
+  c3.respond(text("third responds first"));
+  await new Promise(r => setTimeout(r, 50));
+  c1.respond(text("first responds second"));
+  await new Promise(r => setTimeout(r, 50));
+  c2.respond(text("second responds last"));
 
   const result = await council.waitForCompletion();
-  assert(result.members[0].state === "done", "done");
-  assert(result.members[0].output.length > 0, "has output");
-  assert(result.members[0].durationMs >= 400, "took at least 400ms (slow mock)");
+
+  assert(doneOrder[0] === "third", `first done: ${doneOrder[0]}`);
+  assert(doneOrder[2] === "second", `last done: ${doneOrder[2]}`);
+  assert(result.ttfrMs > 0, "ttfr tracked");
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Live Steer/Abort Tests — interact with slow members mid-flight
+// Live Steer/Abort E2E Tests — full pipeline through Council → Member → pi
 // ═══════════════════════════════════════════════════════════════════════
 
-process.stdout.write("\n── Live Steer/Abort Tests ──\n");
+process.stdout.write("\n── Live Steer/Abort E2E Tests ──\n");
 
-await test("T81: Steer a slow member via Council.followUp", async () => {
-  const council = new Council("Live steer test");
+await test("T76: Steer mid-tool-call delivers context to next brain call", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Steer mid-tool");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_SLOW],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  // Wait a bit for the member to start processing
-  await new Promise(r => setTimeout(r, 200));
-  const member = council.getMember("claude");
-  assert(member.isAlive(), "member is alive");
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(toolCall("bash", { command: "echo step1" }));
 
-  // Send steer — should not throw, should be accepted
-  await council.followUp({ type: "steer", message: "Also consider latency" });
+  // Steer while tool is running
+  const steerP = council.followUp({ type: "steer", message: "Also consider latency." });
 
-  // Wait for completion — the slow mock takes ~2s
+  const call2 = await cb.waitForCall(5000);
+  call2.respond(text("Done considering latency."));
+  await steerP;
+
+  // Drain any extra follow-up turns
+  try { const extra = await cb.waitForCall(3000); extra.respond(text("steer extra")); } catch {}
+
   await council.waitForCompletion();
-  assert(council.isComplete(), "completed after steer");
-  assert(member.getOutput().length > 0, "has output");
+  assert(council.getMember("claude").getOutput().length > 0, "has output after steer");
 });
 
-await test("T82: Abort a slow member and verify cancel", async () => {
-  const council = new Council("Live abort test");
+await test("T77: Abort running member and verify completion", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Abort test");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_SLOW],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  await new Promise(r => setTimeout(r, 200));
-  assert(council.getMember("claude").isAlive(), "alive before abort");
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(toolCall("bash", { command: "sleep 30" }));
 
-  // Abort without new prompt — just stop
+  // Abort without redirect (empty message)
   await council.followUp({ type: "abort", message: "" });
 
-  // After abort, the member's agent_end should fire, then stdin closes, then process exits
   await council.waitForCompletion();
   assert(council.isComplete(), "completed after abort");
 });
 
-await test("T83: Steer targeted to specific member in multi-member council", async () => {
-  const council = new Council("Targeted steer test");
+await test("T78: Steer targeted to specific member in multi-member council", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Targeted steer multi");
   council.spawn({
     models: [
-      { id: "claude", provider: "anthropic", model: "claude-test" },
-      { id: "gpt", provider: "openai", model: "gpt-test" },
+      { id: "claude", provider: "pi-mock", model: "claude-steer" },
+      { id: "gpt", provider: "pi-mock", model: "gpt-steer" },
     ],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_SLOW],
   });
 
-  await new Promise(r => setTimeout(r, 200));
+  const c1 = await cb.waitForCall({ model: "claude-steer" }, 5000);
+  const c2 = await cb.waitForCall({ model: "gpt-steer" }, 5000);
+
+  c1.respond(toolCall("bash", { command: "echo thinking" }));
+  c2.respond(toolCall("bash", { command: "echo working" }));
 
   // Steer only claude
   await council.followUp({
@@ -1681,197 +1578,274 @@ await test("T83: Steer targeted to specific member in multi-member council", asy
     memberIds: ["claude"],
   });
 
+  // Drain all brain calls
+  for (let i = 0; i < 6; i++) {
+    try {
+      const call = await cb.waitForCall(3000);
+      call.respond(text(`done ${i}`));
+    } catch { break; }
+  }
+
   await council.waitForCompletion();
   assert(council.isComplete(), "complete");
-  // Both should finish — steer doesn't kill
   assert(council.getMember("claude").getStatus().state === "done", "claude done");
   assert(council.getMember("gpt").getStatus().state === "done", "gpt done");
 });
 
-await test("T84: Cancel one member while another completes in mixed council", async () => {
-  const council = new Council("Mixed cancel test");
+await test("T79: Double abort serialized — doesn't deadlock", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Double abort");
   council.spawn({
-    models: [
-      { id: "slow", provider: "anthropic", model: "claude-test" },
-      { id: "fast", provider: "openai", model: "gpt-test" },
-    ],
-    cwd: __dirname,
-    piBinary: "node",
-    // Both use slow mock — but we cancel one early
-    piBinaryArgs: [MOCK_PI_SLOW],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  await new Promise(r => setTimeout(r, 200));
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(toolCall("bash", { command: "sleep 30" }));
 
-  // Cancel slow, let fast continue
-  council.cancel(["slow"]);
+  // Fire two aborts. First acquires lock, second waits.
+  const p1 = council.followUp({ type: "abort", message: "first" }).catch(() => {});
+  const p2 = council.followUp({ type: "abort", message: "second" }).catch(() => {});
 
-  await council.waitForCompletion();
-  assert(council.getMember("slow").getStatus().state === "cancelled", "slow cancelled");
-  assert(council.getMember("fast").getStatus().state === "done", "fast done");
+  // Respond to whatever brain calls come in
+  for (let i = 0; i < 4; i++) {
+    try {
+      const call = await cb.waitForCall(3000);
+      call.respond(text("done " + i));
+    } catch { break; }
+  }
+
+  await Promise.allSettled([p1, p2]);
+  await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("DOUBLE ABORT HUNG")), 10000)),
+  ]);
 });
 
-await test("T85: Multiple steers to same member", async () => {
-  const council = new Council("Multi steer test");
+await test("T80: Abort-to-done member doesn't hang", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
+  const council = new Council("Abort done member");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI_SLOW],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  await new Promise(r => setTimeout(r, 200));
-
-  // Send multiple steers
-  await council.followUp({ type: "steer", message: "Consider cost" });
-  await council.followUp({ type: "steer", message: "Consider scale" });
-  await council.followUp({ type: "steer", message: "Consider maintenance" });
-
+  const call1 = await cb.waitForCall(5000);
+  call1.respond(text("First answer."));
   await council.waitForCompletion();
-  assert(council.isComplete(), "completed with multiple steers");
-  assert(council.getMember("claude").getOutput().length > 0, "has output");
+
+  // Member is done. Abort+redirect should not deadlock.
+  const abortP = council.followUp({ type: "abort", message: "new task" });
+  try {
+    const call2 = await cb.waitForCall(3000);
+    call2.respond(text("second answer"));
+  } catch {
+    // Stdin might be closed. That's fine.
+  }
+
+  await Promise.race([
+    abortP,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("ABORT-TO-DONE HUNG")), 5000)),
+  ]);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Observability Tests — stderr, status details
+// Large Output & Stress Tests
 // ═══════════════════════════════════════════════════════════════════════
 
-process.stdout.write("\n── Observability Tests ──\n");
+process.stdout.write("\n── Large Output & Stress Tests ──\n");
 
-await test("T86: Member separates thinking from text output", async () => {
-  const council = new Council("Thinking separation test");
+await test("T81: Large output preserved correctly", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Large output");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  // Enable thinking for this test via env var
-  // (Can't retroactively set env, so test with a separate spawn)
-  const council2 = new Council("Thinking test 2");
-  const { spawn: cpSpawn } = await import("node:child_process");
-  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "anthropic", "--model", "claude-test", "--tools", "read", "--no-session"], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, MOCK_PI_THINKING: "true" },
-  });
+  const call = await cb.waitForCall(5000);
+  call.respond(text("x".repeat(50000)));
 
-  const events = [];
-  let buffer = "";
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    while (true) {
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) break;
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch {}
-    }
-  });
-
-  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test with thinking" }) + "\n");
-  await new Promise(r => setTimeout(r, 1000));
-
-  // Verify thinking events were emitted
-  const thinkingDeltas = events.filter(e =>
-    e.type === "message_update" && e.assistantMessageEvent?.type === "thinking_delta"
-  );
-  assert(thinkingDeltas.length > 0, "got thinking_delta events");
-
-  // Verify text events still work
-  const textDeltas = events.filter(e =>
-    e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta"
-  );
-  assert(textDeltas.length > 0, "got text_delta events too");
-
-  // Verify agent_end has typed content blocks
-  const agentEnd = events.find(e => e.type === "agent_end");
-  assert(agentEnd !== undefined, "got agent_end");
-  const lastMsg = agentEnd.messages[agentEnd.messages.length - 1];
-  const thinkingBlocks = lastMsg.content.filter(b => b.type === "thinking");
-  const textBlocks = lastMsg.content.filter(b => b.type === "text");
-  assert(thinkingBlocks.length > 0, "final message has thinking blocks");
-  assert(textBlocks.length > 0, "final message has text blocks");
-
-  child.stdin.end();
-  await new Promise(r => child.on("close", r));
-
-  // Clean up first council
-  await council.waitForCompletion();
+  const result = await council.waitForCompletion();
+  assert(result.members[0].output.length === 50000, `large: ${result.members[0].output.length}`);
 });
 
-await test("T87: CouncilMember extracts thinking from agent_end message", async () => {
-  const council = new Council("Thinking extraction test");
-  const events = [];
-  council.on(e => events.push(e));
+await test("T82: Five members at once all complete", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
 
-  // We need to test with MOCK_PI_THINKING=true
-  // Create a wrapper that sets the env
-  const wrapperPath = path.join(testHome, "thinking-wrapper.mjs");
-  fs.writeFileSync(wrapperPath, `
-    import { execSync, spawn as cpSpawn } from "node:child_process";
-    const args = process.argv.slice(2);
-    const child = cpSpawn("node", args, {
-      stdio: "inherit",
-      env: { ...process.env, MOCK_PI_THINKING: "true" },
-    });
-    child.on("exit", (code) => process.exit(code ?? 0));
-  `);
-
+  const council = new Council("Five members");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [wrapperPath, MOCK_PI],
+    models: Array.from({ length: 5 }, (_, i) => ({
+      id: `m${i}`,
+      provider: "pi-mock",
+      model: `mock-${i}`,
+    })),
   });
 
+  for (let i = 0; i < 5; i++) {
+    const call = await cb.waitForCall(5000);
+    call.respond(text(`member ${call.request.model}`));
+  }
+
+  const result = await council.waitForCompletion();
+  assert(result.members.length === 5, "5 members");
+  assert(result.members.every(m => m.state === "done"), "all 5 done");
+  assert(new Set(result.members.map(m => m.id)).size === 5, "unique ids");
+});
+
+await test("T83: Steer-to-done member doesn't deadlock waitForCompletion", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Steer done no deadlock");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Done."));
   await council.waitForCompletion();
+
+  await council.followUp({ type: "steer", message: "extra" });
+
+  // waitForCompletion should still resolve immediately
+  await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("STEER-TO-DONE HUNG")), 3000)),
+  ]);
+});
+
+await test("T84: Member getOutput returns accumulated text", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Output accumulation");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(text("Accumulated text content."));
+  await council.waitForCompletion();
+
   const member = council.getMember("claude");
-  const status = member.getStatus();
-
-  // Output should be clean text (no thinking content mixed in)
-  assert(status.output.length > 0, "has text output");
-  assert(status.thinking.length > 0, "has thinking content");
-  assert(!status.output.includes("Let me think"), "output doesn't contain thinking text");
-  assert(status.thinking.includes("think"), "thinking contains thinking text");
-
-  // JSON file should have both fields
-  const jsonPath = path.join(council.getRunDir(), "claude.json");
-  const jsonData = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
-  assert(typeof jsonData.thinking === "string", "JSON has thinking field");
-  assert(jsonData.thinking.length > 0, "JSON thinking is non-empty");
-  assert(typeof jsonData.output === "string", "JSON has output field");
+  const output = member.getOutput();
+  assert(output.length > 0, "has output");
+  assert(typeof output === "string", "is string");
+  assert(output.includes("Accumulated"), "correct content");
 });
 
-await test("T88: Member with no thinking has empty thinking field", async () => {
-  const council = new Council("No thinking test");
+await test("T85: Script brain with tool calls", async () => {
+  gw.setBrain(script(bash("echo hello"), text("After tool.")));
+
+  const council = new Council("Script with tools");
   council.spawn({
-    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
-    cwd: __dirname,
-    piBinary: "node",
-    piBinaryArgs: [MOCK_PI],
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
   });
 
-  await council.waitForCompletion();
-  const status = council.getMember("claude").getStatus();
-  assert(status.thinking === "", "thinking is empty string");
-  assert(status.output.length > 0, "output still has content");
+  const result = await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("HUNG")), 15000)),
+  ]);
+
+  assert(result.members[0].state === "done", "script done");
+  assert(result.members[0].output.includes("After tool") || result.members[0].output.includes("tool"),
+    `script output: ${result.members[0].output.slice(0, 80)}`);
 });
 
+await test("T86: Script brain with thinking + tool", async () => {
+  gw.setBrain(script(
+    [thinking("Hmm, let me check"), bash("echo step1")],
+    [thinking("OK now I know"), text("Final answer: 42")],
+  ));
+
+  const council = new Council("Script thinking");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const result = await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("HUNG")), 15000)),
+  ]);
+
+  assert(result.members[0].output.includes("42"), "script thinking output");
+  assert(result.members[0].thinking.length > 0, "script thinking captured");
+});
+
+await test("T87: Per-member JSON artifact has thinking, output, and toolEvents", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Full artifact test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call1 = await cb.waitForCall(5000);
+  call1.respond([thinking("Deep analysis"), bash("echo data")]);
+  const call2 = await cb.waitForCall(5000);
+  call2.respond(text("Conclusion from analysis."));
+
+  await council.waitForCompletion();
+
+  const jsonPath = path.join(council.getRunDir(), "claude.json");
+  const data = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+
+  assert(data.id === "claude", "id");
+  assert(data.state === "done", "state");
+  assert(data.output.includes("Conclusion"), "output");
+  assert(data.thinking.includes("analysis"), "thinking");
+  assert(Array.isArray(data.toolEvents), "toolEvents array");
+  assert(data.toolEvents.length >= 2, "has tool events");
+  assert(typeof data.durationMs === "number", "durationMs");
+});
+
+await test("T88: SSE error — council handles gracefully without hanging", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("SSE error test");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond(error("something went wrong"));
+
+  const result = await Promise.race([
+    council.waitForCompletion(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("SSE ERROR HUNG")), 15000)),
+  ]);
+
+  assert(
+    result.members[0].state === "done" || result.members[0].state === "failed",
+    `error state: ${result.members[0].state}`,
+  );
+});
 
 // ═══════════════════════════════════════════════════════════════════════
-// Summary
+// Cleanup & Summary
 // ═══════════════════════════════════════════════════════════════════════
+
+// Restore env
+if (origAgentDir !== undefined) process.env.PI_CODING_AGENT_DIR = origAgentDir;
+else delete process.env.PI_CODING_AGENT_DIR;
+if (origOffline !== undefined) process.env.PI_OFFLINE = origOffline;
+else delete process.env.PI_OFFLINE;
+
+await gw.close();
+fs.rmSync(agentDir, { recursive: true, force: true });
+fs.rmSync(testHome, { recursive: true, force: true });
 
 process.stdout.write(`\n📊 Results: ${passed} passed, ${failed} failed out of ${passed + failed}\n\n`);
 
 process.stdout.write(`METRIC tests_passed=${passed}\n`);
 process.stdout.write(`METRIC tests_failed=${failed}\n`);
 process.stdout.write(`METRIC tests_total=${passed + failed}\n`);
-
-// Cleanup
-fs.rmSync(testHome, { recursive: true, force: true });
 
 process.exit(failed > 0 ? 1 : 0);

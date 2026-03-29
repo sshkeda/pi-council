@@ -107,6 +107,7 @@ export class CouncilMember {
     // Attach error handler IMMEDIATELY to prevent unhandled error crash
     this.child.on("error", (err) => {
       if (this.state === "running" || this.state === "spawning") {
+        this.clearRetryGrace();
         this.state = "failed";
         this.error = `Process error: ${err.message}`;
         this.finishedAt = Date.now();
@@ -137,6 +138,7 @@ export class CouncilMember {
     });
 
     this.child.on("close", (code) => {
+      this.clearRetryGrace();
       this.exitCode = code;
       // Only transition if still running/spawning — agent_end already
       // handles the normal done transition. This catches crashes and
@@ -540,6 +542,10 @@ export class CouncilMember {
     switch (event.type) {
       case "agent_start":
         this.isStreaming = true;
+        // Also cancel retry grace — agent_start means a new cycle is
+        // underway (whether from auto-retry or otherwise). Belt-and-
+        // suspenders alongside auto_retry_start handling.
+        this.clearRetryGrace();
         break;
 
       case "agent_end":
@@ -570,6 +576,9 @@ export class CouncilMember {
             // Commit to done with whatever output the error cycle produced.
             this.pendingErrorEnd = undefined;
             this.retryGraceTimer = undefined;
+            // Guard: only transition if still running. close/error/cancel
+            // may have already moved us to a terminal state.
+            if (this.state !== "running") return;
             this.captureStats().catch(() => {});
             this.state = "done";
             this.finishedAt = Date.now();

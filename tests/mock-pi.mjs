@@ -109,10 +109,13 @@ async function processPrompt(prompt, requestId) {
   const responseText = generateResponse(prompt);
   const words = responseText.split(" ");
 
-  // Stream text deltas
+  // Build the message with optional thinking block + text block
+  const hasThinking = process.env.MOCK_PI_THINKING === "true";
+  const thinkingText = hasThinking ? `Let me think about: "${prompt.slice(0, 40)}"...\nAnalyzing the key factors.` : "";
+
   const message = {
     role: "assistant",
-    content: [{ type: "text", text: "" }],
+    content: [],
     model,
     provider,
     stopReason: "stop",
@@ -120,16 +123,64 @@ async function processPrompt(prompt, requestId) {
 
   send({ type: "message_start", message });
 
-  for (const word of words) {
-    const delta = (message.content[0].text ? " " : "") + word;
-    message.content[0].text += delta;
+  // Stream thinking deltas (if enabled)
+  if (hasThinking) {
+    const thinkingBlock = { type: "thinking", thinking: "" };
+    message.content.push(thinkingBlock);
+    const thinkingIdx = message.content.length - 1;
+
     send({
       type: "message_update",
       message,
-      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial: message },
+      assistantMessageEvent: { type: "thinking_start", contentIndex: thinkingIdx, partial: message },
+    });
+
+    const thinkingWords = thinkingText.split(" ");
+    for (const word of thinkingWords) {
+      const delta = (thinkingBlock.thinking ? " " : "") + word;
+      thinkingBlock.thinking += delta;
+      send({
+        type: "message_update",
+        message,
+        assistantMessageEvent: { type: "thinking_delta", contentIndex: thinkingIdx, delta, partial: message },
+      });
+      await delay(3);
+    }
+
+    send({
+      type: "message_update",
+      message,
+      assistantMessageEvent: { type: "thinking_end", contentIndex: thinkingIdx, content: thinkingBlock.thinking, partial: message },
+    });
+  }
+
+  // Stream text deltas
+  const textBlock = { type: "text", text: "" };
+  message.content.push(textBlock);
+  const textIdx = message.content.length - 1;
+
+  send({
+    type: "message_update",
+    message,
+    assistantMessageEvent: { type: "text_start", contentIndex: textIdx, partial: message },
+  });
+
+  for (const word of words) {
+    const delta = (textBlock.text ? " " : "") + word;
+    textBlock.text += delta;
+    send({
+      type: "message_update",
+      message,
+      assistantMessageEvent: { type: "text_delta", contentIndex: textIdx, delta, partial: message },
     });
     await delay(5); // Small delay between words
   }
+
+  send({
+    type: "message_update",
+    message,
+    assistantMessageEvent: { type: "text_end", contentIndex: textIdx, content: textBlock.text, partial: message },
+  });
 
   send({
     type: "message_update",

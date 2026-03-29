@@ -1740,6 +1740,126 @@ await test("T85: Multiple steers to same member", async () => {
 
 process.stdout.write("\n── Observability Tests ──\n");
 
+await test("T86: Member separates thinking from text output", async () => {
+  const council = new Council("Thinking separation test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  // Enable thinking for this test via env var
+  // (Can't retroactively set env, so test with a separate spawn)
+  const council2 = new Council("Thinking test 2");
+  const { spawn: cpSpawn } = await import("node:child_process");
+  const child = cpSpawn("node", [MOCK_PI, "--mode", "rpc", "--provider", "anthropic", "--model", "claude-test", "--tools", "read", "--no-session"], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, MOCK_PI_THINKING: "true" },
+  });
+
+  const events = [];
+  let buffer = "";
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (line) try { events.push(JSON.parse(line)); } catch {}
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ type: "prompt", id: "p1", message: "test with thinking" }) + "\n");
+  await new Promise(r => setTimeout(r, 1000));
+
+  // Verify thinking events were emitted
+  const thinkingDeltas = events.filter(e =>
+    e.type === "message_update" && e.assistantMessageEvent?.type === "thinking_delta"
+  );
+  assert(thinkingDeltas.length > 0, "got thinking_delta events");
+
+  // Verify text events still work
+  const textDeltas = events.filter(e =>
+    e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta"
+  );
+  assert(textDeltas.length > 0, "got text_delta events too");
+
+  // Verify agent_end has typed content blocks
+  const agentEnd = events.find(e => e.type === "agent_end");
+  assert(agentEnd !== undefined, "got agent_end");
+  const lastMsg = agentEnd.messages[agentEnd.messages.length - 1];
+  const thinkingBlocks = lastMsg.content.filter(b => b.type === "thinking");
+  const textBlocks = lastMsg.content.filter(b => b.type === "text");
+  assert(thinkingBlocks.length > 0, "final message has thinking blocks");
+  assert(textBlocks.length > 0, "final message has text blocks");
+
+  child.stdin.end();
+  await new Promise(r => child.on("close", r));
+
+  // Clean up first council
+  await council.waitForCompletion();
+});
+
+await test("T87: CouncilMember extracts thinking from agent_end message", async () => {
+  const council = new Council("Thinking extraction test");
+  const events = [];
+  council.on(e => events.push(e));
+
+  // We need to test with MOCK_PI_THINKING=true
+  // Create a wrapper that sets the env
+  const wrapperPath = path.join(testHome, "thinking-wrapper.mjs");
+  fs.writeFileSync(wrapperPath, `
+    import { execSync, spawn as cpSpawn } from "node:child_process";
+    const args = process.argv.slice(2);
+    const child = cpSpawn("node", args, {
+      stdio: "inherit",
+      env: { ...process.env, MOCK_PI_THINKING: "true" },
+    });
+    child.on("exit", (code) => process.exit(code ?? 0));
+  `);
+
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [wrapperPath, MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const member = council.getMember("claude");
+  const status = member.getStatus();
+
+  // Output should be clean text (no thinking content mixed in)
+  assert(status.output.length > 0, "has text output");
+  assert(status.thinking.length > 0, "has thinking content");
+  assert(!status.output.includes("Let me think"), "output doesn't contain thinking text");
+  assert(status.thinking.includes("think"), "thinking contains thinking text");
+
+  // JSON file should have both fields
+  const jsonPath = path.join(council.getRunDir(), "claude.json");
+  const jsonData = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+  assert(typeof jsonData.thinking === "string", "JSON has thinking field");
+  assert(jsonData.thinking.length > 0, "JSON thinking is non-empty");
+  assert(typeof jsonData.output === "string", "JSON has output field");
+});
+
+await test("T88: Member with no thinking has empty thinking field", async () => {
+  const council = new Council("No thinking test");
+  council.spawn({
+    models: [{ id: "claude", provider: "anthropic", model: "claude-test" }],
+    cwd: __dirname,
+    piBinary: "node",
+    piBinaryArgs: [MOCK_PI],
+  });
+
+  await council.waitForCompletion();
+  const status = council.getMember("claude").getStatus();
+  assert(status.thinking === "", "thinking is empty string");
+  assert(status.output.length > 0, "output still has content");
+});
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // Summary

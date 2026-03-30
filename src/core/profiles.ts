@@ -7,7 +7,7 @@ import type { ModelSpec } from "./types.js";
 export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "claude", provider: "anthropic", model: "claude-opus-4-6" },
   { id: "gpt", provider: "openai-codex", model: "gpt-5.4" },
-  { id: "gemini", provider: "google", model: "gemini-3.1-pro-preview" },
+  { id: "gemini", provider: "openrouter", model: "google/gemini-3.1-pro-preview" },
   { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning" },
 ];
 

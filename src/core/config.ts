@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { ModelSpec } from "./types.js";
-import { DEFAULT_MODELS, COUNCIL_SYSTEM_PROMPT } from "./profiles.js";
+import { DEFAULT_MODELS } from "./profiles.js";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -40,7 +40,6 @@ export interface CouncilConfig {
   models: Record<string, ModelDef>;
   profiles: Record<string, ProfileDef>;
   defaultProfile: string;
-  systemPrompt: string;
 }
 
 export interface ResolvedProfile {
@@ -62,7 +61,6 @@ export function getDefaultConfig(): CouncilConfig {
       default: { models: DEFAULT_MODELS.map((m) => m.id) },
     },
     defaultProfile: "default",
-    systemPrompt: COUNCIL_SYSTEM_PROMPT,
   };
 }
 
@@ -162,11 +160,17 @@ export function loadConfig(): CouncilConfig {
   }
   const defaultProfile = raw.defaultProfile;
 
-  const systemPrompt = typeof raw.systemPrompt === "string" && raw.systemPrompt
-    ? raw.systemPrompt
-    : COUNCIL_SYSTEM_PROMPT;
+  // Backward compat: if top-level systemPrompt exists, apply it to
+  // any profiles that don't have their own systemPrompt.
+  if (typeof raw.systemPrompt === "string" && raw.systemPrompt) {
+    for (const prof of Object.values(profiles)) {
+      if (!prof.systemPrompt) {
+        prof.systemPrompt = raw.systemPrompt;
+      }
+    }
+  }
 
-  return { models, profiles, defaultProfile, systemPrompt };
+  return { models, profiles, defaultProfile };
 }
 
 // ─── Saving ──────────────────────────────────────────────────────────
@@ -217,7 +221,7 @@ export function resolveProfile(
   return {
     name,
     models,
-    systemPrompt: profileDef.systemPrompt ?? config.systemPrompt,
+    systemPrompt: profileDef.systemPrompt,
     thinking: profileDef.thinking,
     memberTimeoutMs: profileDef.memberTimeoutMs,
   };

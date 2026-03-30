@@ -3,7 +3,7 @@
   "title": "pi-council config",
   "description": "Configuration for pi-council — multi-model AI council",
   "type": "object",
-  "required": ["models", "profiles", "defaultProfile", "systemPrompt"],
+  "required": ["models", "profiles", "defaultProfile"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -11,7 +11,7 @@
     },
     "systemPrompt": {
       "type": "string",
-      "description": "Base system prompt for all council members. Profiles can override this."
+      "description": "Deprecated. Use per-profile systemPrompt instead. If present, applied to profiles that don't have their own."
     },
     "models": {
       "type": "object",
@@ -50,7 +50,7 @@
           },
           "systemPrompt": {
             "type": "string",
-            "description": "Override the top-level systemPrompt for this profile"
+            "description": "Custom system prompt for members in this profile. If omitted, the built-in default is used."
           },
           "thinking": {
             "type": "string",

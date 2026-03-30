@@ -79,7 +79,7 @@ Run `pi-council config` to view current config, `pi-council config path` to prin
   "profiles": {
     "<name>": {
       "models": ["<model-id>", ...],
-      "systemPrompt": "overrides the top-level systemPrompt for this profile",
+      "systemPrompt": "optional custom system prompt for this profile",
       "thinking": "off | minimal | low | medium | high | xhigh",
       "memberTimeoutMs": 120000
     }
@@ -92,7 +92,7 @@ Run `pi-council config` to view current config, `pi-council config path` to prin
 - Every model ID in a profile's `models` array must exist in the top-level `models` map
 - `defaultProfile` must reference an existing profile name
 - At least one profile must exist
-- Top-level `systemPrompt` applies to all profiles unless overridden per-profile
+- If a profile omits `systemPrompt`, the built-in default council prompt is used
 
 ### Example config
 
@@ -111,8 +111,7 @@ This is an example showing what's possible. Do NOT assume these profiles exist â
       "models": ["claude", "gpt", "gemini", "grok"]
     }
   },
-  "defaultProfile": "default",
-  "systemPrompt": "You are one member of a multi-model council. Multiple AI models have been given the same question independently. Your job is to provide YOUR perspective â€” do your own research, form your own opinion, and be specific.\n\nRules:\n- Work independently. Do NOT try to coordinate with other models.\n- Do NOT spawn other agents or run council commands.\n- Use your tools to investigate if the question is about code, files, or data.\n- Be concise and specific. Give your actual opinion, not a generic overview.\n- If you disagree with a common assumption, say so clearly and explain why."
+  "defaultProfile": "default"
 }
 ```
 

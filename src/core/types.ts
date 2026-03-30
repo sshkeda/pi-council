@@ -11,7 +11,7 @@ export interface ModelSpec {
 export interface Profile {
   name: string;
   models: ModelSpec[];
-  systemPrompt: string;
+  systemPrompt?: string;
 }
 
 export interface SpawnOptions {

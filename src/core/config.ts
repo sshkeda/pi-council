@@ -7,8 +7,7 @@
  *     "gpt":    { "provider": "openai-codex", "model": "gpt-5.4" }
  *   },
  *   "profiles": {
- *     "default": { "models": ["claude", "gpt", "gemini", "grok"] },
- *     "quick":   { "models": ["claude", "gpt"], "systemPrompt": "Be brief." }
+ *     "default": { "models": ["claude", "gpt", "gemini", "grok"] }
  *   },
  *   "defaultProfile": "default"
  * }
@@ -28,6 +27,7 @@ export interface ModelDef {
 }
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+const VALID_THINKING_LEVELS = new Set<string>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
 export interface ProfileDef {
   models: string[];
@@ -76,64 +76,97 @@ export function getConfigPath(): string {
 // ─── Loading ─────────────────────────────────────────────────────────
 
 /**
- * Load config from disk, falling back to defaults.
- * Falls back to defaults on any error.
+ * Load config from disk.
+ * Throws if no config exists — run `pi-council config init` to create one.
+ * Throws on malformed config.
  */
 export function loadConfig(): CouncilConfig {
   const configPath = getConfigPath();
-  const defaults = getDefaultConfig();
 
-  try {
-    if (!fs.existsSync(configPath)) {
-      saveConfig(defaults);
-      return defaults;
-    }
-    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-
-    const models: Record<string, ModelDef> = {};
-    if (raw.models && typeof raw.models === "object") {
-      for (const [id, def] of Object.entries(raw.models)) {
-        const d = def as Record<string, unknown>;
-        if (d.provider && d.model) {
-          models[id] = { provider: String(d.provider), model: String(d.model) };
-        }
-      }
-    }
-    if (Object.keys(models).length === 0) return defaults;
-
-    const profiles: Record<string, ProfileDef> = {};
-    if (raw.profiles && typeof raw.profiles === "object") {
-      for (const [name, prof] of Object.entries(raw.profiles)) {
-        const p = prof as Record<string, unknown>;
-        if (Array.isArray(p.models) && p.models.length > 0) {
-          profiles[name] = {
-            models: p.models.map(String),
-            ...(typeof p.systemPrompt === "string" ? { systemPrompt: p.systemPrompt } : {}),
-            ...(typeof p.thinking === "string" ? { thinking: p.thinking as ThinkingLevel } : {}),
-            ...(typeof p.memberTimeoutMs === "number" ? { memberTimeoutMs: p.memberTimeoutMs } : {}),
-          };
-        }
-      }
-    }
-
-    // If no profiles defined, create a default with all models
-    if (Object.keys(profiles).length === 0) {
-      profiles.default = { models: Object.keys(models) };
-    }
-
-    const defaultProfile =
-      typeof raw.defaultProfile === "string" && profiles[raw.defaultProfile]
-        ? raw.defaultProfile
-        : Object.keys(profiles)[0];
-
-    if (typeof raw.systemPrompt !== "string" || !raw.systemPrompt) {
-      return defaults;
-    }
-
-    return { models, profiles, defaultProfile, systemPrompt: raw.systemPrompt };
-  } catch {
-    return defaults;
+  if (!fs.existsSync(configPath)) {
+    throw new Error(
+      `No config found. Run "pi-council config init" to create one.`,
+    );
   }
+
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  } catch {
+    throw new Error(
+      `Config at ${configPath} is not valid JSON. Check for syntax errors.`,
+    );
+  }
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      `Config at ${configPath} is malformed. Expected a JSON object.`,
+    );
+  }
+
+  const models: Record<string, ModelDef> = {};
+  if (raw.models && typeof raw.models === "object") {
+    for (const [id, def] of Object.entries(raw.models)) {
+      const d = def as Record<string, unknown>;
+      if (d.provider && d.model) {
+        models[id] = { provider: String(d.provider), model: String(d.model) };
+      }
+    }
+  }
+  if (Object.keys(models).length === 0) {
+    throw new Error(
+      `Config at ${configPath} has no valid models. Check your config.`,
+    );
+  }
+
+  const profiles: Record<string, ProfileDef> = {};
+  if (raw.profiles && typeof raw.profiles === "object") {
+    for (const [name, prof] of Object.entries(raw.profiles)) {
+      const p = prof as Record<string, unknown>;
+      if (Array.isArray(p.models) && p.models.length > 0) {
+        profiles[name] = {
+          models: p.models.map(String),
+          ...(typeof p.systemPrompt === "string" ? { systemPrompt: p.systemPrompt } : {}),
+          ...(typeof p.thinking === "string" && VALID_THINKING_LEVELS.has(p.thinking) ? { thinking: p.thinking as ThinkingLevel } : {}),
+          ...(typeof p.memberTimeoutMs === "number" ? { memberTimeoutMs: p.memberTimeoutMs } : {}),
+        };
+      }
+    }
+  }
+
+  if (Object.keys(profiles).length === 0) {
+    throw new Error(
+      `Config at ${configPath} has no valid profiles. Each profile needs a "models" array.`,
+    );
+  }
+
+  // Validate every profile's model refs point to defined models
+  for (const [name, prof] of Object.entries(profiles)) {
+    const unknown = prof.models.filter((id) => !models[id]);
+    if (unknown.length > 0) {
+      throw new Error(
+        `Profile "${name}" references unknown models: ${unknown.join(", ")}. Defined: ${Object.keys(models).join(", ")}`,
+      );
+    }
+  }
+
+  if (typeof raw.defaultProfile !== "string" || !raw.defaultProfile) {
+    throw new Error(
+      `Config at ${configPath} is missing "defaultProfile".`,
+    );
+  }
+  if (!profiles[raw.defaultProfile]) {
+    throw new Error(
+      `Config at ${configPath} has defaultProfile "${raw.defaultProfile}" but no matching profile. Available: ${Object.keys(profiles).join(", ")}`,
+    );
+  }
+  const defaultProfile = raw.defaultProfile;
+
+  const systemPrompt = typeof raw.systemPrompt === "string" && raw.systemPrompt
+    ? raw.systemPrompt
+    : COUNCIL_SYSTEM_PROMPT;
+
+  return { models, profiles, defaultProfile, systemPrompt };
 }
 
 // ─── Saving ──────────────────────────────────────────────────────────

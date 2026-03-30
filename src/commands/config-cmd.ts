@@ -7,7 +7,14 @@ export function configCmd(args: string[], json?: boolean): void {
   switch (sub) {
     case "show":
     case "": {
-      const config = loadConfig();
+      let config;
+      try {
+        config = loadConfig();
+      } catch (err) {
+        process.stderr.write(`${(err as Error).message}\n`);
+        process.exitCode = 1;
+        return;
+      }
       if (json) {
         process.stdout.write(JSON.stringify(config, null, 2) + "\n");
         return;
@@ -49,12 +56,13 @@ export function configCmd(args: string[], json?: boolean): void {
     case "init": {
       const configPath = getConfigPath();
       if (fs.existsSync(configPath)) {
-        process.stderr.write(`Config already exists: ${configPath}\n`);
-        process.stderr.write(`Use "pi-council config" to view it.\n`);
+        process.stderr.write(`Config already exists at ${configPath}\n`);
+        process.exitCode = 1;
         return;
       }
       saveConfig(getDefaultConfig());
-      process.stderr.write(`✅ Created default config at ${configPath}\n`);
+      process.stderr.write(`✅ Created config at ${configPath}\n`);
+      process.stderr.write(`Edit it to configure models, profiles, and prompts.\n`);
       break;
     }
 

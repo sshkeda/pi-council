@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { ModelSpec } from "./types.js";
-import { DEFAULT_MODELS } from "./profiles.js";
+import { DEFAULT_MODELS, DEFAULT_SYSTEM_PROMPT } from "./profiles.js";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ export function getDefaultConfig(): CouncilConfig {
       DEFAULT_MODELS.map((m) => [m.id, { provider: m.provider, model: m.model }]),
     ),
     profiles: {
-      default: { models: DEFAULT_MODELS.map((m) => m.id) },
+      default: { models: DEFAULT_MODELS.map((m) => m.id), systemPrompt: DEFAULT_SYSTEM_PROMPT },
     },
     defaultProfile: "default",
   };

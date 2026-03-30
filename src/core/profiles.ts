@@ -11,7 +11,8 @@ export const DEFAULT_MODELS: ModelSpec[] = [
   { id: "grok", provider: "xai", model: "grok-4.20-0309-reasoning" },
 ];
 
-export const COUNCIL_SYSTEM_PROMPT = `You are one member of a multi-model council. Multiple AI models have been given the same question independently. Your job is to provide YOUR perspective — do your own research, form your own opinion, and be specific.
+/** Default system prompt — used by `config init` to seed new configs. Not a runtime fallback. */
+export const DEFAULT_SYSTEM_PROMPT = `You are one member of a multi-model council. Multiple AI models have been given the same question independently. Your job is to provide YOUR perspective — do your own research, form your own opinion, and be specific.
 
 Rules:
 - Work independently. Do NOT try to coordinate with other models.

@@ -11,7 +11,7 @@
     },
     "systemPrompt": {
       "type": "string",
-      "description": "Deprecated. Use per-profile systemPrompt instead. If present, applied to profiles that don't have their own."
+      "description": "Deprecated. Use per-profile systemPrompt instead. If present, applied as a fallback to profiles that don't define their own."
     },
     "models": {
       "type": "object",
@@ -50,7 +50,7 @@
           },
           "systemPrompt": {
             "type": "string",
-            "description": "Custom system prompt for members in this profile. If omitted, the built-in default is used."
+            "description": "System prompt for members in this profile. Required for the prompt to be set — there is no built-in fallback."
           },
           "thinking": {
             "type": "string",

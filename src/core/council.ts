@@ -8,7 +8,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { CouncilMember } from "./member.js";
-import { COUNCIL_SYSTEM_PROMPT } from "./profiles.js";
 import { generateRunId } from "../util/run-id.js";
 import type {
   SpawnOptions,
@@ -62,7 +61,7 @@ export class Council {
       throw new Error("No models provided. Pass models in spawn options.");
     }
 
-    const systemPrompt = customSystemPrompt ?? COUNCIL_SYSTEM_PROMPT;
+    const systemPrompt = customSystemPrompt;
 
     // Create run directory and save metadata
     fs.mkdirSync(this.runDir, { recursive: true });

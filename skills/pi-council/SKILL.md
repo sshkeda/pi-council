@@ -92,7 +92,7 @@ Run `pi-council config` to view current config, `pi-council config path` to prin
 - Every model ID in a profile's `models` array must exist in the top-level `models` map
 - `defaultProfile` must reference an existing profile name
 - At least one profile must exist
-- If a profile omits `systemPrompt`, the built-in default council prompt is used
+- If a profile omits `systemPrompt`, no system prompt is appended to members
 
 ### Example config
 

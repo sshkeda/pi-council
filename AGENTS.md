@@ -13,7 +13,7 @@ Tests: `tests/council.test.mjs` (deterministic tests using `tests/mock-pi.mjs`).
 
 ```bash
 pi-council ask "your question"
-pi-council ask --profile quick "your question"
+pi-council ask --profile my-profile "your question"
 pi-council ask --models claude,grok "your question"
 pi-council ask --json "your question"
 pi-council spawn "your question"

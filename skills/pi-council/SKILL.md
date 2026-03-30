@@ -38,7 +38,7 @@ Spawn a council. Returns immediately — results auto-delivered as each member f
 
 Parameters:
 - `question` (required): The question for the council. Frame it neutrally.
-- `profile` (optional): Named profile from config e.g. `"quick"`, `"code-review"`. Default: the `defaultProfile` from config.
+- `profile` (optional): Named profile from config. Omit to use the `defaultProfile`. Only pass a profile name you have confirmed exists in the user's config.
 - `models` (optional): Array of model IDs e.g. `["claude", "grok"]`. Overrides profile if both given.
 - `label` (optional): Short label for status widget.
 
@@ -96,27 +96,19 @@ Run `pi-council config` to view current config, `pi-council config path` to prin
 
 ### Example config
 
+This is an example showing what's possible. Do NOT assume these profiles exist — always omit `profile` to use the default unless the user explicitly asks for a specific one.
+
 ```json
 {
   "models": {
     "claude": { "provider": "anthropic", "model": "claude-opus-4-6" },
     "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
-    "gemini": { "provider": "google", "model": "gemini-3.1-pro-preview" },
-    "grok": { "provider": "xai", "model": "grok-4.20-0309-reasoning" },
-    "deepseek": { "provider": "deepseek", "model": "deepseek-r1" }
+    "gemini": { "provider": "openrouter", "model": "google/gemini-3.1-pro-preview" },
+    "grok": { "provider": "xai", "model": "grok-4.20-0309-reasoning" }
   },
   "profiles": {
     "default": {
       "models": ["claude", "gpt", "gemini", "grok"]
-    },
-    "quick": {
-      "models": ["claude", "gpt"]
-    },
-    "code-review": {
-      "models": ["claude", "gpt", "gemini"],
-      "systemPrompt": "You are reviewing code for quality, bugs, and design issues.",
-      "thinking": "high",
-      "memberTimeoutMs": 120000
     }
   },
   "defaultProfile": "default",

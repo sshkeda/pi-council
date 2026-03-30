@@ -45,7 +45,7 @@ export default function (pi: ExtensionAPI) {
         }),
       ),
       profile: Type.Optional(
-        Type.String({ description: 'Named profile to use (from ~/.pi-council/config.json). e.g. "quick", "code-review"' }),
+        Type.String({ description: 'Named profile to use (from ~/.pi-council/config.json). Omit to use the default profile. Only pass a profile name you have confirmed exists in the config.' }),
       ),
       label: Type.Optional(
         Type.String({ description: 'Short label for this council run (shown in status widget). e.g. "architecture review"' }),

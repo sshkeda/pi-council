@@ -48,12 +48,11 @@ Spawn models in parallel. Returns immediately.
 
 ```
 spawn_council({ question: "Should we use microservices?" })
-spawn_council({ question: "Review this PR", profile: "code-review" })
 spawn_council({ question: "Quick check", models: ["claude", "gpt"] })
 ```
 
 - `question` — The question, framed neutrally
-- `profile` — Optional: named profile from config (e.g. `"quick"`, `"code-review"`)
+- `profile` — Optional: named profile from config. Omit to use the default profile.
 - `models` — Optional: explicit model IDs (overrides profile)
 
 ### `council_followup`
@@ -139,32 +138,22 @@ Config lives at `~/.pi-council/config.json`. Run `pi-council config init` to cre
   "models": {
     "claude": { "provider": "anthropic", "model": "claude-opus-4-6" },
     "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
-    "gemini": { "provider": "google", "model": "gemini-3.1-pro-preview" },
+    "gemini": { "provider": "openrouter", "model": "google/gemini-3.1-pro-preview" },
     "grok": { "provider": "xai", "model": "grok-4.20-0309-reasoning" }
   },
   "profiles": {
     "default": {
       "models": ["claude", "gpt", "gemini", "grok"]
-    },
-    "quick": {
-      "models": ["claude", "gpt"]
-    },
-    "code-review": {
-      "models": ["claude", "gpt", "gemini"],
-      "systemPrompt": "You are reviewing code for quality, bugs, and design issues.",
-      "thinking": "high",
-      "memberTimeoutMs": 120000
     }
   },
   "defaultProfile": "default"
 }
 ```
 
-**Models** define available AI models by ID → provider/model. **Profiles** are named sets of models with optional system prompt, thinking level (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`), and timeout. Use `--profile` to switch:
+**Models** define available AI models by ID → provider/model. **Profiles** are named sets of models with optional system prompt, thinking level (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`), and timeout. You can add custom profiles and switch with `--profile`:
 
 ```bash
-pi-council ask --profile quick "Fast check"
-pi-council ask --profile code-review "Review auth.ts"
+pi-council ask --profile my-profile "My question"
 ```
 
 

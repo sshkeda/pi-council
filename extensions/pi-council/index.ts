@@ -16,6 +16,14 @@ import { loadConfig, resolveProfile, resolveModelIds } from "../../src/core/conf
 import type { ModelSpec, CouncilEvent } from "../../src/core/types.js";
 
 export default function (pi: ExtensionAPI) {
+  // Hard block: council members must not spawn nested councils.
+  // When a council spawns a member, it sets PI_COUNCIL_MEMBER=1 in the
+  // child environment. If that env var is present, we skip registering
+  // all council tools entirely — the model literally cannot call them.
+  if (process.env.PI_COUNCIL_MEMBER === "1") {
+    return;
+  }
+
   const registry = new CouncilRegistry();
 
   // ─── spawn_council ─────────────────────────────────────────────────

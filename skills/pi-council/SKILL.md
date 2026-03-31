@@ -135,6 +135,9 @@ All run artifacts at `~/.pi-council/runs/<run-id>/`:
 - The point is surfacing **disagreement**, not consensus
 - The orchestrator synthesizes the final answer from diverse perspectives
 - Per-member results are written to disk immediately — they survive context compaction
+- **Council members cannot spawn nested councils.** When a member is spawned, the env var
+  `PI_COUNCIL_MEMBER=1` is set, which causes the extension to skip registering all council
+  tools. The model cannot call spawn_council because the tool does not exist in its session.
 
 ## IMPORTANT: Do NOT poll after spawning
 Results are auto-delivered as followUp messages — each member's output arrives as it finishes,

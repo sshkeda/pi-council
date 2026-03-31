@@ -26,7 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Dynamically import the council core (after build)
 const { Council, CouncilRegistry } = await import("../dist/src/core/council.js");
 const { CouncilMember } = await import("../dist/src/core/member.js");
-const { DEFAULT_MODELS, COUNCIL_SYSTEM_PROMPT } = await import("../dist/src/core/profiles.js");
+const { DEFAULT_MODELS, DEFAULT_SYSTEM_PROMPT } = await import("../dist/src/core/profiles.js");
 const { loadConfig, resolveProfile, resolveModelIds, getDefaultConfig } = await import("../dist/src/core/config.js");
 const { generateRunId } = await import("../dist/src/util/run-id.js");
 
@@ -186,8 +186,8 @@ await test("T16: readStream throws for unknown member", async () => {
 });
 
 await test("T17: Council system prompt mentions council and independence", async () => {
-  assert(COUNCIL_SYSTEM_PROMPT.includes("council"), "mentions council");
-  assert(COUNCIL_SYSTEM_PROMPT.includes("independent"), "mentions independence");
+  assert(DEFAULT_SYSTEM_PROMPT.includes("council"), "mentions council");
+  assert(DEFAULT_SYSTEM_PROMPT.includes("independent"), "mentions independence");
 });
 
 await test("T18: Registry active() filters correctly", async () => {

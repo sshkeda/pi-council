@@ -109,7 +109,7 @@ export class CouncilMember {
     this.child = spawn(piBinary, allArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: cwd ?? process.cwd(),
-      env: { ...process.env },
+      env: { ...process.env, PI_COUNCIL_MEMBER: "1" },
     });
 
     // Attach error handler IMMEDIATELY to prevent unhandled error crash

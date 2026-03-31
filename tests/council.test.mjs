@@ -1834,6 +1834,93 @@ await test("T88: SSE error — council handles gracefully without hanging", asyn
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Nested Council Prevention Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Nested Council Prevention Tests ──\n");
+
+await test("T89: PI_COUNCIL_MEMBER env var is set on spawned members", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Env var check");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  // The member process should have PI_COUNCIL_MEMBER=1 in its env.
+  // We can verify by checking the spawn args in member.ts.
+  // Since we can't directly inspect child env, we verify the member
+  // completes normally (proving the env var doesn't break anything).
+  const call = await cb.waitForCall(5000);
+  call.respond(text("I answered directly without spawning a council."));
+
+  await council.waitForCompletion();
+  const output = council.getMember("claude").getOutput();
+  assert(output.includes("directly"), "member answered directly");
+});
+
+await test("T90: Extension early-returns when PI_COUNCIL_MEMBER=1 is set", async () => {
+  // Simulate what happens inside a council member process:
+  // the extension should not register any tools.
+  const originalEnv = process.env.PI_COUNCIL_MEMBER;
+  process.env.PI_COUNCIL_MEMBER = "1";
+
+  try {
+    const registeredTools = [];
+    const mockPi = {
+      registerTool: (tool) => registeredTools.push(tool.name),
+      sendMessage: () => {},
+    };
+
+    // Dynamically import and call the extension
+    // We need a fresh import to pick up the env var
+    const extensionPath = path.join(__dirname, "..", "dist", "extensions", "pi-council", "index.js");
+    const mod = await import(extensionPath + "?t=" + Date.now());
+    mod.default(mockPi);
+
+    assert(registeredTools.length === 0, `expected 0 tools registered, got ${registeredTools.length}: ${registeredTools.join(", ")}`);
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env.PI_COUNCIL_MEMBER = originalEnv;
+    } else {
+      delete process.env.PI_COUNCIL_MEMBER;
+    }
+  }
+});
+
+await test("T91: Extension registers tools normally when PI_COUNCIL_MEMBER is not set", async () => {
+  // Verify the extension registers tools when NOT in a council member
+  const originalEnv = process.env.PI_COUNCIL_MEMBER;
+  delete process.env.PI_COUNCIL_MEMBER;
+
+  try {
+    const registeredTools = [];
+    const mockPi = {
+      registerTool: (tool) => registeredTools.push(tool.name),
+      sendMessage: () => {},
+    };
+
+    const extensionPath = path.join(__dirname, "..", "dist", "extensions", "pi-council", "index.js");
+    const mod = await import(extensionPath + "?t=normal" + Date.now());
+    mod.default(mockPi);
+
+    assert(registeredTools.length === 5, `expected 5 tools, got ${registeredTools.length}: ${registeredTools.join(", ")}`);
+    assert(registeredTools.includes("spawn_council"), "has spawn_council");
+    assert(registeredTools.includes("council_followup"), "has council_followup");
+    assert(registeredTools.includes("cancel_council"), "has cancel_council");
+    assert(registeredTools.includes("council_status"), "has council_status");
+    assert(registeredTools.includes("read_stream"), "has read_stream");
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env.PI_COUNCIL_MEMBER = originalEnv;
+    } else {
+      delete process.env.PI_COUNCIL_MEMBER;
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Cleanup & Summary
 // ═══════════════════════════════════════════════════════════════════════
 

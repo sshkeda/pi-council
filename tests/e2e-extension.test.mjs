@@ -57,14 +57,21 @@ async function test(name, fn) {
 function writeTestConfig(homeDir, models) {
   const configDir = path.join(homeDir, ".pi-council");
   fs.mkdirSync(configDir, { recursive: true });
+
+  const modelList = models ?? [
+    { id: "claude", provider: "anthropic", model: "mock-claude" },
+    { id: "gpt", provider: "openai", model: "mock-gpt" },
+  ];
+
   fs.writeFileSync(
     path.join(configDir, "config.json"),
     JSON.stringify({
-      models: models ?? [
-        { id: "claude", provider: "anthropic", model: "mock-claude" },
-        { id: "gpt", provider: "openai", model: "mock-gpt" },
-      ],
-    }),
+      models: Object.fromEntries(modelList.map((m) => [m.id, { provider: m.provider, model: m.model }])),
+      profiles: {
+        default: { models: modelList.map((m) => m.id) },
+      },
+      defaultProfile: "default",
+    }, null, 2),
   );
 }
 

@@ -80,11 +80,15 @@ function writeTestConfig(homeDir) {
   fs.writeFileSync(
     path.join(configDir, "config.json"),
     JSON.stringify({
-      models: [
-        { id: "claude", provider: "anthropic", model: "mock-claude" },
-        { id: "gpt", provider: "openai", model: "mock-gpt" },
-      ],
-    }),
+      models: {
+        claude: { provider: "anthropic", model: "mock-claude" },
+        gpt: { provider: "openai", model: "mock-gpt" },
+      },
+      profiles: {
+        default: { models: ["claude", "gpt"] },
+      },
+      defaultProfile: "default",
+    }, null, 2),
   );
 }
 

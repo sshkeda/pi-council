@@ -11,7 +11,7 @@
 import { createGateway, createControllableBrain, text, thinking } from "pi-mock";
 import { Council } from "../dist/src/core/council.js";
 import { getDefaultConfig, resolveProfile, resolveModelIds, loadConfig, saveConfig, getConfigPath } from "../dist/src/core/config.js";
-import { COUNCIL_SYSTEM_PROMPT } from "../dist/src/core/profiles.js";
+import { DEFAULT_SYSTEM_PROMPT } from "../dist/src/core/profiles.js";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir, homedir } from "node:os";
@@ -68,7 +68,7 @@ await test("P1: resolveProfile uses default profile when none specified", async 
   const resolved = resolveProfile(config);
   assert(resolved.name === "default", `name: ${resolved.name}`);
   assert(resolved.models.length === 4, "4 models");
-  assert(resolved.systemPrompt === COUNCIL_SYSTEM_PROMPT, "has council system prompt");
+  assert(resolved.systemPrompt === DEFAULT_SYSTEM_PROMPT, "has council system prompt");
 });
 
 await test("P2: resolveProfile picks named profile", async () => {
@@ -92,10 +92,23 @@ await test("P3: Profile systemPrompt overrides config systemPrompt", async () =>
 });
 
 await test("P4: Profile without systemPrompt inherits config systemPrompt", async () => {
-  const config = getDefaultConfig();
-  config.profiles.quick = { models: ["claude", "gpt"] };
+  const configPath = getConfigPath();
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, JSON.stringify({
+    models: {
+      claude: { provider: "pi-mock", model: "mock" },
+      gpt: { provider: "pi-mock", model: "mock" },
+    },
+    profiles: {
+      quick: { models: ["claude", "gpt"] },
+    },
+    defaultProfile: "quick",
+    systemPrompt: "Shared base prompt.",
+  }, null, 2));
+
+  const config = loadConfig();
   const resolved = resolveProfile(config, "quick");
-  assert(resolved.systemPrompt === config.systemPrompt, "inherits config prompt");
+  assert(resolved.systemPrompt === "Shared base prompt.", "inherits config prompt");
 });
 
 await test("P5: Profile thinking level is preserved", async () => {
@@ -158,8 +171,8 @@ await test("P11: Config from disk with profiles loads correctly", async () => {
 
   const config = loadConfig();
   assert(config.defaultProfile === "myprofile", "default");
-  assert(config.systemPrompt === "Custom base prompt.", "prompt");
   const resolved = resolveProfile(config);
+  assert(resolved.systemPrompt === "Custom base prompt.", "prompt inherited into profile");
   assert(resolved.thinking === "low", "thinking from disk");
   assert(resolved.models[0].provider === "pi-mock", "provider from disk");
 });

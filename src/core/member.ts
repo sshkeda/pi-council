@@ -28,6 +28,8 @@ export class CouncilMember {
   readonly id: string;
   readonly model: ModelSpec;
 
+  private static readonly EMPTY_OUTPUT_ERROR = "Member completed with empty output";
+
   private child: ChildProcess | null = null;
   private state: MemberState = "spawning";
   private output = "";
@@ -227,11 +229,13 @@ export class CouncilMember {
           await this.sendRpcCommand({ type: "prompt", message: newPrompt });
         } catch {
           // Prompt failed (stdin closed, process dead). Restore state and
-          // re-emit done so anything awaiting waitForDone() doesn't hang.
+          // re-emit terminal event so anything awaiting waitForDone() doesn't hang.
           this.state = prevState;
           this.finishedAt = this.finishedAt ?? Date.now();
           if (prevState === "done") {
             this.emit({ type: "member_done", memberId: this.id, output: this.output });
+          } else if (prevState === "failed") {
+            this.emit({ type: "member_failed", memberId: this.id, error: this.error ?? "prompt failed" });
           }
         }
       } finally {
@@ -405,6 +409,19 @@ export class CouncilMember {
       this.retryGraceTimer = undefined;
       this.pendingErrorEnd = undefined;
     }
+  }
+
+  private finishRun(): void {
+    this.finishedAt = Date.now();
+    if (this.output.trim().length === 0) {
+      this.state = "failed";
+      this.error = CouncilMember.EMPTY_OUTPUT_ERROR;
+      this.emit({ type: "member_failed", memberId: this.id, error: this.error });
+      return;
+    }
+
+    this.state = "done";
+    this.emit({ type: "member_done", memberId: this.id, output: this.output });
   }
 
   /**
@@ -591,9 +608,7 @@ export class CouncilMember {
             // may have already moved us to a terminal state.
             if (this.state !== "running") return;
             this.captureStats().catch(() => {});
-            this.state = "done";
-            this.finishedAt = Date.now();
-            this.emit({ type: "member_done", memberId: this.id, output: this.output });
+            this.finishRun();
           }, 1000);
           break;
         }
@@ -601,9 +616,7 @@ export class CouncilMember {
         // Normal (non-error) agent_end — commit immediately.
         this.captureStats().catch(() => {});
         if (this.state === "running") {
-          this.state = "done";
-          this.finishedAt = Date.now();
-          this.emit({ type: "member_done", memberId: this.id, output: this.output });
+          this.finishRun();
         }
         break;
 

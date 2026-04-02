@@ -124,13 +124,15 @@ await test("S1: spawn → thinking → tool call → text → complete → artif
   assert(md.includes("results"), "output in md");
   assert(md.includes("Thinking"), "thinking section in md");
 
-  // Thinking-only response produces empty output
+  // Thinking-only response is treated as failed with captured thinking
   cb = createControllableBrain(); gw.setBrain(cb.brain);
   const c2 = new Council("thinking only");
   c2.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
   const call3 = await cb.waitForCall(3000);
   call3.respond([thinking("I have nothing to say")]);
   const r2 = await c2.waitForCompletion();
+  assert(r2.members[0].state === "failed", "thinking-only marked failed");
+  assert(r2.members[0].error === "Member completed with empty output", `error: ${r2.members[0].error}`);
   assert(r2.members[0].output === "", "empty output for thinking-only");
   assert(r2.members[0].thinking.includes("nothing"), "thinking captured");
 

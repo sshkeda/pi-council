@@ -1327,7 +1327,7 @@ await test("T67: Member separates thinking from text output", async () => {
   assert(!status.thinking.includes("42"), "thinking excludes text answer");
 });
 
-await test("T68: Thinking-only response produces empty output", async () => {
+await test("T68: Thinking-only response is treated as failed", async () => {
   const cb = createControllableBrain();
   gw.setBrain(cb.brain);
 
@@ -1342,6 +1342,8 @@ await test("T68: Thinking-only response produces empty output", async () => {
   await council.waitForCompletion();
   const m = council.getMember("claude").getStatus();
 
+  assert(m.state === "failed", "thinking-only marked failed");
+  assert(m.error === "Member completed with empty output", `error: ${m.error}`);
   assert(m.output === "", "output is empty");
   assert(m.thinking.includes("nothing"), "thinking captured");
 });

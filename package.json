@@ -8,16 +8,7 @@
   "bin": {
     "pi-council": "./bin/pi-council.js"
   },
-  "files": [
-    "bin",
-    "dist",
-    "src",
-    "skills",
-    "extensions",
-    "config.schema.json",
-    "README.md",
-    "LICENSE"
-  ],
+
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sshkeda/pi-council.git"
@@ -59,7 +50,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "rm -rf dist && tsc",
+    "prepare": "rm -rf dist && tsc",
     "dev": "node --import tsx src/cli.ts",
     "test": "npm run test:all",
     "test:profiles": "npm run build && node tests/profiles.test.mjs",

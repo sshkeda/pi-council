@@ -13,7 +13,76 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Council, CouncilRegistry } from "../../src/core/council.js";
 import { loadConfig, resolveProfile, resolveModelIds } from "../../src/core/config.js";
-import type { ModelSpec, CouncilEvent } from "../../src/core/types.js";
+import type { ModelSpec, CouncilEvent, MemberState } from "../../src/core/types.js";
+
+
+type WidgetUiCtx = {
+  hasUI?: boolean;
+  ui: {
+    setWidget: (key: string, lines: string[] | undefined) => void;
+  };
+};
+
+type CouncilRow = {
+  runId: string;
+  prompt: string;
+  label?: string;
+  members: Array<{ id: string; state: MemberState }>;
+};
+
+function makeCouncilUiState() {
+  let sharedCtx: WidgetUiCtx | null = null;
+  const councilLabels = new Map<string, string>();
+  const mockRows = new Map<string, CouncilRow>();
+
+  function setInteractiveOwner(ctx: WidgetUiCtx): void {
+    if (ctx.hasUI) sharedCtx = ctx;
+  }
+
+  function renderRows(rows: CouncilRow[]): string[] {
+    return rows.map((council) => {
+      const label = councilLabels.get(council.runId) ?? council.label ?? council.prompt.slice(0, 40);
+      const memberIcons = council.members.map((m) => {
+        const icon = m.state === "done" ? "✅" : m.state === "failed" || m.state === "cancelled" ? "❌" : "🔄";
+        return `${icon} ${m.id}`;
+      }).join("  ");
+      return `🏛️ ${label} — ${memberIcons}`;
+    });
+  }
+
+  function setMockCouncilRow(row: CouncilRow): void {
+    mockRows.set(row.runId, row);
+    if (row.label) councilLabels.set(row.runId, row.label);
+    updateMockWidget();
+  }
+
+  function clearMockCouncilRow(runId: string): void {
+    mockRows.delete(runId);
+    councilLabels.delete(runId);
+    updateMockWidget();
+  }
+
+  function updateMockWidget(): void {
+    if (!sharedCtx) return;
+    const rows = [...mockRows.values()];
+    if (rows.length === 0) {
+      sharedCtx.ui.setWidget("pi-council", undefined);
+      return;
+    }
+    sharedCtx.ui.setWidget("pi-council", renderRows(rows));
+  }
+
+  return {
+    get sharedCtx() {
+      return sharedCtx;
+    },
+    councilLabels,
+    setInteractiveOwner,
+    renderRows,
+    setMockCouncilRow,
+    clearMockCouncilRow,
+  };
+}
 
 export default function (pi: ExtensionAPI) {
   // Hard block: council members must not spawn nested councils.
@@ -25,6 +94,68 @@ export default function (pi: ExtensionAPI) {
   }
 
   const registry = new CouncilRegistry();
+  const uiState = makeCouncilUiState();
+
+  /**
+   * Rebuild the shared council widget showing all active councils as separate rows.
+   * Called whenever any council's status changes.
+   */
+  function updateCouncilWidget(): void {
+    const sharedCtx = uiState.sharedCtx;
+    if (!sharedCtx) return;
+
+    const activeCouncils = registry.active();
+    if (activeCouncils.length === 0) {
+      sharedCtx.ui.setWidget("pi-council", undefined);
+      return;
+    }
+
+    const rows: CouncilRow[] = activeCouncils.map((council) => ({
+      runId: council.runId,
+      prompt: council.prompt,
+      label: uiState.councilLabels.get(council.runId),
+      members: council.getMembers().map((m) => {
+        const s = m.getStatus();
+        return { id: s.id, state: s.state };
+      }),
+    }));
+
+    sharedCtx.ui.setWidget("pi-council", uiState.renderRows(rows));
+  }
+
+  pi.events?.emit?.("_mock:register_invocation", {
+    name: "spawn_council",
+    fn: async (input: Record<string, unknown>, ctx: WidgetUiCtx) => {
+      uiState.setInteractiveOwner(ctx);
+
+      const runId = String(input.runId ?? "mock-run");
+      const label = typeof input.label === "string"
+        ? input.label
+        : typeof input.question === "string"
+          ? input.question.slice(0, 40)
+          : "mock-council";
+
+      if (input.action === "clear") {
+        uiState.clearMockCouncilRow(runId);
+        return { ok: true };
+      }
+
+      const rawMembers = Array.isArray(input.members) ? input.members as Array<Record<string, unknown>> : [{ id: "claude", state: "running" }];
+      const members = rawMembers.map((m) => ({
+        id: String(m.id ?? "claude"),
+        state: (m.state === "done" || m.state === "failed" || m.state === "cancelled" || m.state === "timed_out" || m.state === "running" || m.state === "spawning") ? m.state : "running",
+      })) as Array<{ id: string; state: MemberState }>;
+
+      uiState.setMockCouncilRow({
+        runId,
+        prompt: typeof input.question === "string" ? input.question : label,
+        label,
+        members,
+      });
+
+      return { ok: true };
+    },
+  });
 
   // ─── spawn_council ─────────────────────────────────────────────────
   pi.registerTool({
@@ -65,7 +196,7 @@ export default function (pi: ExtensionAPI) {
 
       const council = new Council(params.question);
       const label = params.label ?? params.question.slice(0, 40) + (params.question.length > 40 ? "..." : "");
-      registry.add(council);
+      uiState.setInteractiveOwner(ctx);
 
       let finishedCount = 0;
       let delivered = false;
@@ -75,13 +206,8 @@ export default function (pi: ExtensionAPI) {
         if (event.type === "member_done" || event.type === "member_failed") {
           finishedCount++;
           const totalMembers = council.getMembers().length;
-          // Show per-member status: ✅ done, 🔄 running
-          const memberIcons = council.getMembers().map(m => {
-            const s = m.getStatus();
-            const icon = s.state === "done" ? "✅" : s.state === "failed" || s.state === "cancelled" ? "❌" : "🔄";
-            return `${icon} ${s.id}`;
-          }).join("  ");
-          ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label} — ${memberIcons} (${council.runId})`);
+          // Update the shared widget with all active councils
+          updateCouncilWidget();
 
           if (isInteractive) {
             const memberId = (event as { memberId: string }).memberId;
@@ -129,16 +255,21 @@ export default function (pi: ExtensionAPI) {
         }
 
         // Deliver final combined result
-        if (event.type === "council_complete" && isInteractive && !delivered) {
-          delivered = true;
-          ctx.ui.setStatus(`council-${council.runId}`, undefined);
+        if (event.type === "council_complete") {
+          // Always clean up label and update widget (regardless of interactive mode)
+          uiState.councilLabels.delete(council.runId);
+          updateCouncilWidget();
           // Clean up registry to prevent memory leak — keep last 5 runs
           const all = registry.list();
           if (all.length > 5) {
             for (const old of all.slice(0, all.length - 5)) {
+              uiState.councilLabels.delete(old.runId);
               registry.remove(old.runId);
             }
           }
+
+          if (!isInteractive || delivered) return;
+          delivered = true;
 
           const result = council.getResult();
           const succeeded = result.members.filter(m => m.state === "done").length;
@@ -213,9 +344,13 @@ export default function (pi: ExtensionAPI) {
 
         council.spawn(spawnOptions as any);
 
-        // Set status widget immediately so it shows up right away
-        const memberIcons = council.getMembers().map(m => `🔄 ${m.id}`).join("  ");
-        ctx.ui.setStatus(`council-${council.runId}`, `🏛️ ${label} — ${memberIcons} (${council.runId})`);
+        // Only add to registry after successful spawn — avoids zombie councils
+        // (0-member councils are never "complete" so they'd leak as active forever)
+        registry.add(council);
+        uiState.councilLabels.set(council.runId, label);
+
+        // Update the shared widget immediately so it shows up right away
+        updateCouncilWidget();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return {

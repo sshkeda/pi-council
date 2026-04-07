@@ -94,6 +94,17 @@ function getConversationText(request) {
     .join("\n");
 }
 
+/** Poll until condition returns truthy, then return it. */
+async function waitForCondition(fn, timeoutMs = 5000, intervalMs = 100) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = fn();
+    if (value) return value;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 process.stdout.write("\n🧪 Extension E2E Test Suite\n\n");
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -759,6 +770,327 @@ await test("E2E13: spawn → status → read_stream in sequence", async () => {
 
     orchCall5.respond(text("All done."));
     await new Promise(r => setTimeout(r, 1000));
+  } finally {
+    await mock.close();
+    fs.rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// E2E: Concurrent council UI — widget shows all active councils
+// ═══════════════════════════════════════════════════════════════════════
+
+process.stdout.write("\n── Concurrent council UI ──\n");
+
+await test("E2E14: Three concurrent councils show as separate widget rows", async () => {
+  const cb = createControllableBrain();
+  const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
+  writeTestConfig(testHome, [
+    { id: "claude", provider: "anthropic", model: "mock-claude" },
+    { id: "gpt", provider: "openai", model: "mock-gpt" },
+  ]);
+
+  const mock = await createMock({
+    brain: cb.brain,
+    extensions: [EXTENSION_PATH],
+    env: { HOME: testHome },
+  });
+
+  try {
+    await mock.prompt("Spawn three councils.");
+
+    // Orchestrator spawns council 1
+    const orch1 = await cb.waitForCall({ model: "mock" }, 10000);
+    orch1.respond(
+      toolCall("spawn_council", {
+        question: "Council Alpha question",
+        models: ["claude"],
+        label: "alpha",
+      }),
+    );
+
+    // Wait for council 1 to spawn its member + orchestrator to get result
+    const [orch2, c1Claude] = await Promise.all([
+      cb.waitForCall({ model: "mock" }, 15000),
+      cb.waitForCall({ model: "mock-claude" }, 15000),
+    ]);
+
+    // Don't complete c1Claude yet — keep council 1 running
+    // Orchestrator spawns council 2
+    orch2.respond(
+      toolCall("spawn_council", {
+        question: "Council Beta question",
+        models: ["claude"],
+        label: "beta",
+      }),
+    );
+
+    const [orch3, c2Claude] = await Promise.all([
+      cb.waitForCall({ model: "mock" }, 15000),
+      cb.waitForCall({ model: "mock-claude" }, 15000),
+    ]);
+
+    // Don't complete c2Claude yet — keep council 2 running
+    // Orchestrator spawns council 3
+    orch3.respond(
+      toolCall("spawn_council", {
+        question: "Council Gamma question",
+        models: ["claude"],
+        label: "gamma",
+      }),
+    );
+
+    const [orch4, c3Claude] = await Promise.all([
+      cb.waitForCall({ model: "mock" }, 15000),
+      cb.waitForCall({ model: "mock-claude" }, 15000),
+    ]);
+
+    // All 3 councils are running now. Pause to let UI update.
+    orch4.respond(text("All three councils spawned."));
+    await new Promise(r => setTimeout(r, 1000));
+
+    // --- Verify the widget shows all 3 councils as separate rows ---
+    // The widget key should be "pi-council" with 3 lines
+    const widgetUpdates = mock.widgets.filter(w => w.key === "pi-council" && w.lines);
+    const latestWidget = widgetUpdates[widgetUpdates.length - 1];
+
+    assert(latestWidget, "pi-council widget was set");
+    assert(latestWidget.lines.length === 3, `widget has 3 rows, got ${latestWidget.lines.length}: ${JSON.stringify(latestWidget.lines)}`);
+    assert(latestWidget.lines.some(l => l.includes("alpha")), "widget row for alpha");
+    assert(latestWidget.lines.some(l => l.includes("beta")), "widget row for beta");
+    assert(latestWidget.lines.some(l => l.includes("gamma")), "widget row for gamma");
+
+    // Now complete all members
+    c1Claude.respond(text("Alpha done."));
+    c2Claude.respond(text("Beta done."));
+    c3Claude.respond(text("Gamma done."));
+
+    // Drain remaining turns from the followUps
+    // Each council_complete triggers a followUp. We need to handle the turns.
+    // Wait for the triggerTurn followUps
+    const finalOrch = await cb.waitForCall({ model: "mock" }, 20000);
+    finalOrch.respond(text("Done."));
+
+    // There may be more turns from the other 2 councils completing
+    try {
+      const extra1 = await cb.waitForCall({ model: "mock" }, 5000);
+      extra1.respond(text("Done."));
+    } catch { /* may not get more turns */ }
+    try {
+      const extra2 = await cb.waitForCall({ model: "mock" }, 5000);
+      extra2.respond(text("Done."));
+    } catch { /* may not get more turns */ }
+
+    await new Promise(r => setTimeout(r, 1000));
+
+    // After all councils complete, widget should be cleared
+    const finalWidgets = mock.widgets.filter(w => w.key === "pi-council");
+    const lastWidget = finalWidgets[finalWidgets.length - 1];
+    assert(
+      !lastWidget.lines || lastWidget.lines.length === 0,
+      `widget cleared after all complete, got: ${JSON.stringify(lastWidget.lines)}`,
+    );
+  } finally {
+    await mock.close();
+    fs.rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+await test("E2E15: Concurrent councils use widget not just status for visibility", async () => {
+  const cb = createControllableBrain();
+  const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
+  writeTestConfig(testHome, [
+    { id: "claude", provider: "anthropic", model: "mock-claude" },
+  ]);
+
+  const mock = await createMock({
+    brain: cb.brain,
+    extensions: [EXTENSION_PATH],
+    env: { HOME: testHome },
+  });
+
+  try {
+    await mock.prompt("Spawn two councils.");
+
+    // Spawn council 1
+    const orch1 = await cb.waitForCall({ model: "mock" }, 10000);
+    orch1.respond(
+      toolCall("spawn_council", {
+        question: "First concurrent",
+        models: ["claude"],
+        label: "first",
+      }),
+    );
+
+    const [orch2, c1] = await Promise.all([
+      cb.waitForCall({ model: "mock" }, 15000),
+      cb.waitForCall({ model: "mock-claude" }, 15000),
+    ]);
+
+    // Spawn council 2 (keep council 1 running)
+    orch2.respond(
+      toolCall("spawn_council", {
+        question: "Second concurrent",
+        models: ["claude"],
+        label: "second",
+      }),
+    );
+
+    const [orch3, c2] = await Promise.all([
+      cb.waitForCall({ model: "mock" }, 15000),
+      cb.waitForCall({ model: "mock-claude" }, 15000),
+    ]);
+
+    orch3.respond(text("Both spawned."));
+
+    // Verify: widget is used (not just status)
+    const latest = await waitForCondition(() => {
+      const widgetUpdates = mock.widgets.filter(w => w.key === "pi-council" && w.lines);
+      return widgetUpdates[widgetUpdates.length - 1];
+    });
+    assert(latest.lines.length === 2, `2 rows in widget, got ${latest.lines.length}`);
+
+    // Complete council 1 — widget should update to 1 row
+    c1.respond(text("First done."));
+
+    // After first completes, widget should show only the second
+    const afterFirst = await waitForCondition(() => {
+      const matches = mock.widgets.filter(
+        w => w.key === "pi-council" && w.lines && w.lines.length === 1 && w.lines[0].includes("second"),
+      );
+      return matches[matches.length - 1];
+    }, 5000);
+    assert(afterFirst.lines[0].includes("second"), "remaining row is second council");
+
+    // Drain the turn triggered by first council completing
+    const turn = await cb.waitForCall({ model: "mock" }, 20000);
+    turn.respond(text("Got first result."));
+
+    // Complete council 2
+    c2.respond(text("Second done."));
+
+    const turn2 = await cb.waitForCall({ model: "mock" }, 20000);
+    turn2.respond(text("Got second result."));
+
+    // Widget should be cleared
+    const last = await waitForCondition(() => {
+      const finalWidgets = mock.widgets.filter(w => w.key === "pi-council");
+      const latestWidget = finalWidgets[finalWidgets.length - 1];
+      return latestWidget && !latestWidget.lines ? latestWidget : null;
+    }, 5000);
+    assert(!last.lines, "widget cleared after all done");
+  } finally {
+    await mock.close();
+    fs.rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+await test("E2E16: Invalid model spawn does not create zombie active council or widget row", async () => {
+  const cb = createControllableBrain();
+  const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
+  writeTestConfig(testHome, [
+    { id: "claude", provider: "anthropic", model: "mock-claude" },
+  ]);
+
+  const mock = await createMock({
+    brain: cb.brain,
+    extensions: [EXTENSION_PATH],
+    env: { HOME: testHome },
+  });
+
+  try {
+    await mock.prompt("Try bad spawn then good spawn.");
+
+    // First spawn fails validation before any council members are created.
+    const orch1 = await cb.waitForCall({ model: "mock" }, 10000);
+    orch1.respond(
+      toolCall("spawn_council", {
+        question: "Bad council",
+        models: ["not-a-real-model"],
+        label: "bad",
+      }),
+    );
+
+    const orch2 = await cb.waitForCall({ model: "mock" }, 10000);
+    const badSpawnText = getConversationText(orch2.request);
+    assert(badSpawnText.includes("No matching models found"), `bad spawn returned validation error: ${badSpawnText}`);
+    assert(mock.widgets.filter(w => w.key === "pi-council" && w.lines).length === 0, "no widget row created for invalid spawn");
+
+    // Ask council_status immediately after bad spawn; it should not see a phantom active council.
+    orch2.respond(toolCall("council_status", {}));
+    const orch3 = await cb.waitForCall({ model: "mock" }, 10000);
+    const statusAfterBad = getConversationText(orch3.request);
+    assert(statusAfterBad.includes("No active council"), `no zombie active council after invalid spawn: ${statusAfterBad}`);
+
+    // Now spawn a valid council and verify the widget only shows that one.
+    orch3.respond(
+      toolCall("spawn_council", {
+        question: "Good council",
+        models: ["claude"],
+        label: "good",
+      }),
+    );
+
+    const [orch4, claudeCall] = await Promise.all([
+      cb.waitForCall({ model: "mock" }, 15000),
+      cb.waitForCall({ model: "mock-claude" }, 15000),
+    ]);
+
+    orch4.respond(text("Valid council spawned."));
+
+    const latest = await waitForCondition(() => {
+      const widgets = mock.widgets.filter(w => w.key === "pi-council" && w.lines);
+      return widgets[widgets.length - 1];
+    }, 5000);
+    assert(latest.lines.length === 1, `only one widget row for valid council, got ${latest.lines.length}`);
+    assert(latest.lines[0].includes("good"), `row is the valid council: ${JSON.stringify(latest.lines)}`);
+    assert(!latest.lines[0].includes("bad"), `invalid council did not leak into widget: ${JSON.stringify(latest.lines)}`);
+
+    claudeCall.respond(text("Good council done."));
+    const orch5 = await cb.waitForCall({ model: "mock" }, 20000);
+    orch5.respond(text("All done."));
+  } finally {
+    await mock.close();
+    fs.rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+await test("E2E17: Invalid profile spawn does not create zombie active council or widget row", async () => {
+  const cb = createControllableBrain();
+  const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
+  writeTestConfig(testHome, [
+    { id: "claude", provider: "anthropic", model: "mock-claude" },
+  ]);
+
+  const mock = await createMock({
+    brain: cb.brain,
+    extensions: [EXTENSION_PATH],
+    env: { HOME: testHome },
+  });
+
+  try {
+    await mock.prompt("Try bad profile then check cleanup.");
+
+    const orch1 = await cb.waitForCall({ model: "mock" }, 10000);
+    orch1.respond(
+      toolCall("spawn_council", {
+        question: "Broken profile council",
+        profile: "missing-profile",
+        label: "broken-profile",
+      }),
+    );
+
+    const orch2 = await cb.waitForCall({ model: "mock" }, 10000);
+    const badProfileText = getConversationText(orch2.request);
+    assert(badProfileText.toLowerCase().includes("profile"), `bad profile returned error: ${badProfileText}`);
+    assert(mock.widgets.filter(w => w.key === "pi-council" && w.lines).length === 0, "no widget row created for invalid profile");
+
+    orch2.respond(toolCall("council_status", {}));
+    const orch3 = await cb.waitForCall({ model: "mock" }, 10000);
+    const statusAfterBad = getConversationText(orch3.request);
+    assert(statusAfterBad.includes("No active council"), `no zombie active council after invalid profile: ${statusAfterBad}`);
+
+    orch3.respond(text("Cleanup confirmed."));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });

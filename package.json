@@ -1,14 +1,13 @@
 {
   "name": "pi-council",
   "version": "0.1.1",
-  "description": "Multi-model AI council — spawn Claude, GPT, Gemini, and Grok as parallel coding agents to get independent opinions. CLI + pi extension.",
+  "description": "Multi-model AI council \u2014 spawn Claude, GPT, Gemini, and Grok as parallel coding agents to get independent opinions. CLI + pi extension.",
   "author": "sshkeda",
   "license": "MIT",
   "type": "module",
   "bin": {
     "pi-council": "./bin/pi-council.js"
   },
-
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sshkeda/pi-council.git"
@@ -72,7 +71,6 @@
     "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*",
     "@types/node": "^22.0.0",
-    "pi-mock": "file:../pi-mock",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   }

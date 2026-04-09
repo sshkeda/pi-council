@@ -19,7 +19,7 @@ import {
   createGateway, createControllableBrain,
   text, thinking, toolCall, bash, error,
   script, always,
-} from "pi-mock";
+} from "../../pi-mock/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

@@ -15,7 +15,7 @@ import {
   script, always,
   flakyBrain, failFirst, errorAfter, failNth, intermittent,
   rateLimited, overloaded, serverError, httpError,
-} from "pi-mock";
+} from "../../pi-mock/dist/index.js";
 import { Council } from "../dist/src/core/council.js";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";

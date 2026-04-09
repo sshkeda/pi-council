@@ -8,7 +8,7 @@
  *   - Default profile fallback
  */
 
-import { createGateway, createControllableBrain, text, thinking } from "pi-mock";
+import { createGateway, createControllableBrain, text, thinking } from "../../pi-mock/dist/index.js";
 import { Council } from "../dist/src/core/council.js";
 import { getDefaultConfig, resolveProfile, resolveModelIds, loadConfig, saveConfig, getConfigPath } from "../dist/src/core/config.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../dist/src/core/profiles.js";

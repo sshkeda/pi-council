@@ -22,7 +22,7 @@ import {
   createGateway,
   createControllableBrain,
   text,
-} from "pi-mock";
+} from "../../pi-mock/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = path.resolve(__dirname, "../bin/pi-council.js");

@@ -2,7 +2,7 @@
 
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
-import { createMock, always } from "pi-mock";
+import { createMock, always } from "../../pi-mock/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSION_PATH = path.resolve(__dirname, "../dist/extensions/pi-council/index.js");

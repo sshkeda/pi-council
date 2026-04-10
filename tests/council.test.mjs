@@ -26,7 +26,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Dynamically import the council core (after build)
 const { Council, CouncilRegistry } = await import("../dist/src/core/council.js");
 const { CouncilMember } = await import("../dist/src/core/member.js");
-const { DEFAULT_MODELS, DEFAULT_SYSTEM_PROMPT } = await import("../dist/src/core/profiles.js");
 const { loadConfig, resolveProfile, resolveModelIds, getDefaultConfig } = await import("../dist/src/core/config.js");
 const { generateRunId } = await import("../dist/src/util/run-id.js");
 
@@ -89,17 +88,20 @@ await test("T3: Default config has 4 models and a default profile", async () => 
   assert(config.profiles.default.models.length === 4, "default profile has 4 models");
 });
 
-await test("T4: Default models include all 4", async () => {
-  assert(DEFAULT_MODELS.length === 4, "4 default models");
-  assert(DEFAULT_MODELS[0].id === "claude", "claude first");
-  assert(DEFAULT_MODELS[3].id === "grok", "grok last");
+await test("T4: Default config keeps the expected model slots", async () => {
+  const config = getDefaultConfig();
+  const ids = Object.keys(config.models);
+  assert(ids.length === 4, "4 default model slots");
+  assert(ids[0] === "claude", "claude first");
+  assert(ids[3] === "grok", "grok last");
 });
 
 await test("T5: Each default model has provider and model fields", async () => {
-  for (const m of DEFAULT_MODELS) {
-    assert(m.id.length > 0, `${m.id} has id`);
-    assert(m.provider.length > 0, `${m.id} has provider`);
-    assert(m.model.length > 0, `${m.id} has model`);
+  const config = getDefaultConfig();
+  for (const [id, model] of Object.entries(config.models)) {
+    assert(id.length > 0, `${id} has id`);
+    assert(model.provider.length > 0, `${id} has provider`);
+    assert(model.model.length > 0, `${id} has model`);
   }
 });
 
@@ -185,9 +187,10 @@ await test("T16: readStream throws for unknown member", async () => {
   assert(threw, "threw");
 });
 
-await test("T17: Council system prompt mentions council and independence", async () => {
-  assert(DEFAULT_SYSTEM_PROMPT.includes("council"), "mentions council");
-  assert(DEFAULT_SYSTEM_PROMPT.includes("independent"), "mentions independence");
+await test("T17: Default council prompt mentions council and independence", async () => {
+  const prompt = getDefaultConfig().profiles.default.systemPrompt || "";
+  assert(prompt.includes("council"), "mentions council");
+  assert(prompt.includes("independent"), "mentions independence");
 });
 
 await test("T18: Registry active() filters correctly", async () => {

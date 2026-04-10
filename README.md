@@ -131,15 +131,15 @@ Artifacts at `~/.pi-council/runs/<run-id>/`:
 
 ## Configuration
 
-Config lives at `~/.pi-council/config.json`. Run `pi-council config init` to create it.
+Config lives at `~/.pi-council/config.json`. Run `pi-council config init` to create it from the checked-in `config.default.json` template.
 
 ```json
 {
   "models": {
-    "claude": { "provider": "anthropic", "model": "claude-opus-4-6" },
-    "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
-    "gemini": { "provider": "openrouter", "model": "google/gemini-3.1-pro-preview" },
-    "grok": { "provider": "xai", "model": "grok-4.20-0309-reasoning" }
+    "claude": { "provider": "your-claude-provider", "model": "your-claude-model" },
+    "gpt": { "provider": "your-gpt-provider", "model": "your-gpt-model" },
+    "gemini": { "provider": "your-gemini-provider", "model": "your-gemini-model" },
+    "grok": { "provider": "your-grok-provider", "model": "your-grok-model" }
   },
   "profiles": {
     "default": {

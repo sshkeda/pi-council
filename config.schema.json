@@ -23,11 +23,11 @@
         "properties": {
           "provider": {
             "type": "string",
-            "description": "Provider ID (e.g. anthropic, openai-codex, google, xai, openrouter, deepseek)"
+            "description": "Provider ID recognized by pi"
           },
           "model": {
             "type": "string",
-            "description": "Model name (e.g. claude-opus-4-6, gpt-5.4)"
+            "description": "Concrete model ID/name passed to pi"
           }
         }
       }

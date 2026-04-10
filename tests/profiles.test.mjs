@@ -11,7 +11,6 @@
 import { createGateway, createControllableBrain, text, thinking } from "../../pi-mock/dist/index.js";
 import { Council } from "../dist/src/core/council.js";
 import { getDefaultConfig, resolveProfile, resolveModelIds, loadConfig, saveConfig, getConfigPath } from "../dist/src/core/config.js";
-import { DEFAULT_SYSTEM_PROMPT } from "../dist/src/core/profiles.js";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir, homedir } from "node:os";
@@ -68,7 +67,7 @@ await test("P1: resolveProfile uses default profile when none specified", async 
   const resolved = resolveProfile(config);
   assert(resolved.name === "default", `name: ${resolved.name}`);
   assert(resolved.models.length === 4, "4 models");
-  assert(resolved.systemPrompt === DEFAULT_SYSTEM_PROMPT, "has council system prompt");
+  assert(resolved.systemPrompt === config.profiles.default.systemPrompt, "has council system prompt");
 });
 
 await test("P2: resolveProfile picks named profile", async () => {

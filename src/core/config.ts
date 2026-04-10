@@ -1,23 +1,15 @@
 /**
  * Configuration — reads from ~/.pi-council/config.json.
  *
- * {
- *   "models": {
- *     "claude": { "provider": "anthropic", "model": "claude-opus-4-6" },
- *     "gpt":    { "provider": "openai-codex", "model": "gpt-5.4" }
- *   },
- *   "profiles": {
- *     "default": { "models": ["claude", "gpt", "gemini", "grok"] }
- *   },
- *   "defaultProfile": "default"
- * }
+ * Runtime configuration comes from ~/.pi-council/config.json.
+ * `pi-council config init` copies the checked-in config.default.json template there.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { fileURLToPath } from "node:url";
 import type { ModelSpec } from "./types.js";
-import { DEFAULT_MODELS, DEFAULT_SYSTEM_PROMPT } from "./profiles.js";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -52,16 +44,35 @@ export interface ResolvedProfile {
 
 // ─── Defaults ────────────────────────────────────────────────────────
 
+function findPackageRoot(startDir: string): string {
+  let dir = startDir;
+  while (true) {
+    if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      throw new Error(`Could not locate package root from ${startDir}`);
+    }
+    dir = parent;
+  }
+}
+
 export function getDefaultConfig(): CouncilConfig {
-  return {
-    models: Object.fromEntries(
-      DEFAULT_MODELS.map((m) => [m.id, { provider: m.provider, model: m.model }]),
-    ),
-    profiles: {
-      default: { models: DEFAULT_MODELS.map((m) => m.id), systemPrompt: DEFAULT_SYSTEM_PROMPT },
-    },
-    defaultProfile: "default",
-  };
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageRoot = findPackageRoot(moduleDir);
+  const defaultConfigPath = path.join(packageRoot, "config.default.json");
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(defaultConfigPath, "utf-8"));
+  } catch {
+    throw new Error(`Default config template is missing or invalid at ${defaultConfigPath}`);
+  }
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`Default config template at ${defaultConfigPath} is malformed. Expected a JSON object.`);
+  }
+
+  return raw as CouncilConfig;
 }
 
 // ─── Paths ───────────────────────────────────────────────────────────

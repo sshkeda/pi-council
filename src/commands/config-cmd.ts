@@ -1,5 +1,4 @@
-import * as fs from "node:fs";
-import { loadConfig, getConfigPath, getDefaultConfig, saveConfig } from "../core/config.js";
+import { loadConfig, getConfigPath, getDefaultConfig, saveConfig, configExists } from "../core/config.js";
 
 export function configCmd(args: string[], json?: boolean): void {
   const sub = args[0] ?? "show";
@@ -55,7 +54,7 @@ export function configCmd(args: string[], json?: boolean): void {
 
     case "init": {
       const configPath = getConfigPath();
-      if (fs.existsSync(configPath)) {
+      if (configExists()) {
         process.stderr.write(`Config already exists at ${configPath}\n`);
         process.exitCode = 1;
         return;

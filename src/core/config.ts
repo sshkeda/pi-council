@@ -82,6 +82,10 @@ export function getConfigPath(): string {
   return path.join(os.homedir(), ".pi-council", "config.json");
 }
 
+export function configExists(): boolean {
+  return fs.existsSync(getConfigPath());
+}
+
 // ─── Loading ─────────────────────────────────────────────────────────
 
 /**
@@ -92,7 +96,7 @@ export function getConfigPath(): string {
 export function loadConfig(): CouncilConfig {
   const configPath = getConfigPath();
 
-  if (!fs.existsSync(configPath)) {
+  if (!configExists()) {
     throw new Error(
       `No config found. Run "pi-council config init" to create one.`,
     );

@@ -131,7 +131,8 @@ Artifacts at `~/.pi-council/runs/<run-id>/`:
 
 ## Configuration
 
-Config lives at `~/.pi-council/config.json`. `pi-council config init` copies the checked-in `config.default.json` template into place. Runtime model/provider selection comes only from that JSON config.
+Config lives at `~/.pi-council/config.json`. `pi-council config init` copies the checked-in `config.default.json` template into place. Runtime model/provider selection comes only from this JSON config.
+Use `pi-council config`, `pi-council config path`, and `pi-council config init` to manage the config file.
 
 ```json
 {

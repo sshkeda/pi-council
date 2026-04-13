@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createGateway, createControllableBrain, text } from "../../pi-mock/dist/index.js";
+import { createGateway, createControllableBrain, text, toolCall } from "../../pi-mock/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_PATH = path.resolve(__dirname, "../dist/src/mcp/server.js");
@@ -290,6 +290,183 @@ await test("MCP2: completed runs remain readable from a fresh MCP server process
     assert(listed.runs.some((run) => run.runId === runId), "run appears in list_council_runs");
   } finally {
     await freshSession.close().catch(() => {});
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+await test("MCP4: council_followup steers a running council member", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-council-mcp-home-"));
+  const agentDir = createAgentDir(gw.url);
+  writeCouncilConfig(homeDir);
+
+  const env = {
+    ...process.env,
+    HOME: homeDir,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_OFFLINE: "1",
+  };
+
+  const session = await createMcpClient(env);
+  try {
+    const spawned = await callToolJson(session.client, "spawn_council", {
+      question: "Steer test",
+      models: ["claude"],
+    });
+    assert(spawned.runId, "spawn returned runId");
+
+    const memberCall = await cb.waitForCall({ model: "claude-mcp" }, 10_000);
+    // Keep member busy with a tool call so steer can be delivered
+    memberCall.respond(toolCall("bash", { command: "echo busy" }));
+
+    const followupResult = await callToolJson(session.client, "council_followup", {
+      runId: spawned.runId,
+      message: "Please focus on testing",
+      type: "steer",
+    });
+    assert(followupResult.delivered === true, `followup delivered: ${JSON.stringify(followupResult)}`);
+    assert(followupResult.type === "steer", `followup type: ${followupResult.type}`);
+
+    const steerCall = await cb.waitForCall({ model: "claude-mcp" }, 10_000);
+    steerCall.respond(text("steered response"));
+
+    // Drain extra turns from steer
+    try { const extra = await cb.waitForCall({ model: "claude-mcp" }, 3000); extra.respond(text("done")); } catch {}
+
+    const results = await callToolJson(session.client, "read_council_results", {
+      runId: spawned.runId,
+      wait: true,
+      timeoutMs: 30_000,
+    });
+    assert(results.result.members[0].output.length > 0, `has output: ${results.result.members[0].output}`);
+  } finally {
+    await session.close().catch(() => {});
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+await test("MCP5: cancel_council cancels a running council", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-council-mcp-home-"));
+  const agentDir = createAgentDir(gw.url);
+  writeCouncilConfig(homeDir);
+
+  const env = {
+    ...process.env,
+    HOME: homeDir,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_OFFLINE: "1",
+  };
+
+  const session = await createMcpClient(env);
+  try {
+    const spawned = await callToolJson(session.client, "spawn_council", {
+      question: "Cancel test",
+      models: ["claude", "gpt"],
+    });
+    assert(spawned.runId, "spawn returned runId");
+    assert(spawned.models.length === 2, "2 models spawned");
+
+    await cb.waitForCall({ model: "claude-mcp" }, 10_000);
+    await cb.waitForCall({ model: "gpt-mcp" }, 10_000);
+
+    const cancelResult = await callToolJson(session.client, "cancel_council", {
+      runId: spawned.runId,
+    });
+    assert(cancelResult.runId === spawned.runId, `cancel runId: ${cancelResult.runId}`);
+    assert(cancelResult.cancelled === "all-members", `cancelled: ${JSON.stringify(cancelResult.cancelled)}`);
+
+    const results = await callToolJson(session.client, "read_council_results", {
+      runId: spawned.runId,
+      wait: true,
+      timeoutMs: 30_000,
+    });
+    assert(results.result.members.every(m => m.state === "cancelled"), `all cancelled: ${JSON.stringify(results.result.members.map(m => m.state))}`);
+  } finally {
+    await session.close().catch(() => {});
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+await test("MCP6: cancel_council targets specific member", async () => {
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-council-mcp-home-"));
+  const agentDir = createAgentDir(gw.url);
+  writeCouncilConfig(homeDir);
+
+  const env = {
+    ...process.env,
+    HOME: homeDir,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_OFFLINE: "1",
+  };
+
+  const session = await createMcpClient(env);
+  try {
+    const spawned = await callToolJson(session.client, "spawn_council", {
+      question: "Partial cancel test",
+      models: ["claude", "gpt"],
+    });
+
+    const claudeCall = await cb.waitForCall({ model: "claude-mcp" }, 10_000);
+    await cb.waitForCall({ model: "gpt-mcp" }, 10_000);
+
+    const cancelResult = await callToolJson(session.client, "cancel_council", {
+      runId: spawned.runId,
+      memberIds: ["claude"],
+    });
+    assert(JSON.stringify(cancelResult.cancelled) === JSON.stringify(["claude"]), `cancelled claude only: ${JSON.stringify(cancelResult.cancelled)}`);
+
+    const status = await callToolJson(session.client, "council_status", { runId: spawned.runId });
+    const claudeMember = status.status.members.find(m => m.id === "claude");
+    assert(claudeMember.state === "cancelled", `claude cancelled: ${claudeMember.state}`);
+
+    const gptMember = status.status.members.find(m => m.id === "gpt");
+    assert(["running", "spawning"].includes(gptMember.state), `gpt still running: ${gptMember.state}`);
+  } finally {
+    await session.close().catch(() => {});
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+await test("MCP7: council_followup on no live council returns error", async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-council-mcp-home-"));
+  const agentDir = createAgentDir(gw.url);
+  writeCouncilConfig(homeDir);
+
+  const env = {
+    ...process.env,
+    HOME: homeDir,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_OFFLINE: "1",
+  };
+
+  const session = await createMcpClient(env);
+  try {
+    let errored = false;
+    try {
+      await callToolJson(session.client, "council_followup", {
+        message: "hello",
+        type: "steer",
+        runId: "nonexistent-run-id",
+      });
+    } catch (e) {
+      errored = true;
+      assert(e.message.includes("not active"), `error message: ${e.message}`);
+    }
+    assert(errored, "should error on nonexistent run");
+  } finally {
+    await session.close().catch(() => {});
     fs.rmSync(homeDir, { recursive: true, force: true });
     fs.rmSync(agentDir, { recursive: true, force: true });
   }

@@ -750,7 +750,7 @@ await test("T42: Council with empty models array throws", async () => {
   } catch {
     threw = true;
   }
-  // Empty models should still create directory but have no members
+  assert(threw, "spawn with empty models should throw");
 });
 
 await test("T43: Council event listener removal works", async () => {

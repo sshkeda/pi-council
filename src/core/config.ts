@@ -2,7 +2,7 @@
  * Configuration — reads from ~/.pi-council/config.json.
  *
  * Runtime configuration comes from ~/.pi-council/config.json.
- * `pi-council config init` copies the checked-in config.default.json template there.
+ * Copy config.default.json there and edit it manually, or create the file yourself.
  */
 
 import * as fs from "node:fs";
@@ -90,7 +90,7 @@ export function configExists(): boolean {
 
 /**
  * Load config from disk.
- * Throws if no config exists — run `pi-council config init` to create one.
+ * Throws if no config exists.
  * Throws on malformed config.
  */
 export function loadConfig(): CouncilConfig {
@@ -98,7 +98,7 @@ export function loadConfig(): CouncilConfig {
 
   if (!configExists()) {
     throw new Error(
-      `No config found. Run "pi-council config init" to create one.`,
+      `No config found at ${configPath}. Copy config.default.json there and edit it for your environment.`,
     );
   }
 

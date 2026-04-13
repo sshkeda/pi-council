@@ -6,9 +6,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { CouncilMember } from "./member.js";
 import { generateRunId } from "../util/run-id.js";
+import { getRunsDir, setLatestRunId } from "./storage.js";
 import type {
   SpawnOptions,
   CouncilStatus,
@@ -19,11 +19,6 @@ import type {
 } from "./types.js";
 
 type EventListener = (event: CouncilEvent) => void;
-
-/** Resolve paths at call time so $HOME overrides work in tests/Docker */
-function getRunsDir(): string {
-  return path.join(os.homedir(), ".pi-council", "runs");
-}
 
 export class Council {
   readonly runId: string;
@@ -65,6 +60,7 @@ export class Council {
 
     // Create run directory and save metadata
     fs.mkdirSync(this.runDir, { recursive: true });
+    setLatestRunId(this.runId);
     fs.writeFileSync(
       path.join(this.runDir, "meta.json"),
       JSON.stringify({

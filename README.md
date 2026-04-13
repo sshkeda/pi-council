@@ -3,166 +3,172 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 
-> Spawn Claude, GPT, Gemini, and Grok as independent pi agents to get parallel, unbiased opinions. The orchestrator gets richer context from diverse perspectives to make better decisions.
+> Spawn Claude, GPT, Gemini, and Grok as independent pi agents to get parallel, unbiased opinions.
 
 ## Why
 
-One model can be wrong. Different models are wrong about **different things**. By getting 4 independent opinions, the orchestrator has much richer signal to work with — the differing opinions are the product.
+One model can be wrong. Different models are wrong about different things. A council gives you richer signal by preserving disagreement instead of collapsing everything into one answer.
 
-## Core Principles
+## Core principles
 
-1. **Unbiased prompting** — The orchestrator strips its own conclusions when querying the council. No leading questions.
-2. **Independent research** — Each model works alone with its own tools. They're not given the same evidence.
-3. **Disagreement is signal** — The value is in the differences, not consensus. Pay attention to the dissenter.
-4. **Background operation** — Council runs in background, orchestrator continues foreground work. Results arrive without disruption.
-
-## Prerequisites
-
-- **Node.js ≥ 22** — [nodejs.org](https://nodejs.org)
-- **pi-coding-agent** — each council member is a `pi --mode rpc` process
-
-  ```bash
-  npm install -g @mariozechner/pi-coding-agent
-  ```
-
-- **Provider auth** — run `pi`, then use `/login` to connect your subscriptions (Claude Pro/Max, ChatGPT Plus/Pro, etc.) — or set API keys as environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`)
+1. **Unbiased prompting** — ask neutrally.
+2. **Independent research** — each member gets its own tools and context.
+3. **Disagreement is signal** — the dissenter matters.
+4. **Background execution** — councils can run while the orchestrator keeps working.
 
 ## Install
+
+### As a pi package
 
 ```bash
 pi install https://github.com/sshkeda/pi-council.git
 ```
 
-Then try it out:
+This exposes the pi extension tools:
+- `spawn_council`
+- `council_followup`
+- `cancel_council`
+- `council_status`
+- `read_stream`
+
+### As an MCP server for MCPorter
+
+Build the package, then point MCPorter at the server entrypoint:
 
 ```bash
-pi-council ask "What are the tradeoffs of microservices vs monolith?"
+npm install
+npm run build
+mcporter config add pi-council \
+  --scope home \
+  --command node \
+  --arg /absolute/path/to/pi-council/dist/src/mcp/server.js
 ```
 
-## Extension Tools
-
-When installed as a pi package, the orchestrator gets these tools:
-
-### `spawn_council`
-Spawn models in parallel. Returns immediately.
-
-```
-spawn_council({ question: "Should we use microservices?" })
-spawn_council({ question: "Quick check", models: ["claude", "gpt"] })
-```
-
-- `question` — The question, framed neutrally
-- `profile` — Optional: named profile from config. Omit to use the default profile.
-- `models` — Optional: explicit model IDs (overrides profile)
-
-### `council_followup`
-Send a follow-up to running members.
-
-```
-council_followup({ type: "steer", message: "Also consider the latency impact" })
-council_followup({ type: "abort", message: "New info: the budget changed", memberIds: ["claude"] })
-```
-
-- `type: "steer"` — Queued after current tool call completes
-- `type: "abort"` — Interrupts immediately, injects new context
-
-### `cancel_council`
-Kill members or entire council.
-
-### `council_status`
-Get per-member state: running, done, failed, elapsed time, streaming status, stderr, output preview.
-
-### `read_stream`
-Read a member's full accumulated output, stderr, and debug info.
-
-## CLI
-
-```bash
-# Ask
-pi-council ask "Should I refactor this module?"
-pi-council ask --profile quick "Fast review"
-pi-council ask --models claude,grok "Quick review"
-pi-council ask --json "Structured output"
-
-# Spawn & monitor
-pi-council spawn "Analyze MSFT"
-pi-council status [--json]
-pi-council list [--json]
-pi-council results [--json]
-pi-council watch
-pi-council cleanup
-pi-council cleanup --all
-
-# Configuration
-pi-council config                   # Show current config
-pi-council config path              # Print config file path
-pi-council config init              # Create default config
-```
-
-## Architecture
-
-Each council member is a `pi --mode rpc` process with stdin/stdout bidirectional communication:
-
-```
-Orchestrator                     Council Members (background)
-    │                                │
-    ├── spawn_council ──────────────►│ claude (pi --mode rpc)
-    │                                │ gpt    (pi --mode rpc)
-    │                                │ gemini (pi --mode rpc)
-    │                                │ grok   (pi --mode rpc)
-    │                                │
-    ├── (continues foreground work)  │ (independent research)
-    │                                │
-    ├── council_followup(steer) ────►│ (queued for after tool call)
-    ├── council_followup(abort) ────►│ (immediate interrupt)
-    │                                │
-    │◄─── member result (each) ─────│ (triggerTurn: false)
-    │◄─── summary (all done) ───────│ (triggerTurn: true)
-```
-
-## Results
-
-Artifacts at `~/.pi-council/runs/<run-id>/`:
-- `meta.json` — run metadata
-- `prompt.txt` — raw prompt
-- `<member>.json` — per-member result (written immediately on completion)
-- `results.json` — combined structured results
-- `results.md` — human-readable combined results
-
-## Configuration
-
-Config lives at `~/.pi-council/config.json`. `pi-council config init` copies the checked-in `config.default.json` template into place. Runtime model/provider selection comes only from this JSON config.
-Use `pi-council config`, `pi-council config path`, and `pi-council config init` to manage the config file.
+For live follow-ups, status, and streaming across multiple MCP calls, mark the server as keep-alive and start the daemon:
 
 ```json
 {
+  "mcpServers": {
+    "pi-council": {
+      "command": "node",
+      "args": ["/absolute/path/to/pi-council/dist/src/mcp/server.js"],
+      "lifecycle": "keep-alive"
+    }
+  }
+}
+```
+
+```bash
+mcporter daemon start
+```
+
+Once added, MCPorter will expose these MCP tools:
+- `spawn_council`
+- `council_followup`
+- `cancel_council`
+- `council_status`
+- `read_stream`
+- `list_council_runs`
+- `read_council_results`
+- `cleanup_council_runs`
+
+If you install this package somewhere on your `PATH`, you can use the bundled bin instead:
+
+```bash
+mcporter config add pi-council --scope home --command pi-council-mcp
+```
+
+## Configuration
+
+Runtime config lives at:
+
+```text
+~/.pi-council/config.json
+```
+
+There is no pi-council CLI anymore. Create or edit the config file directly. You can start from `config.default.json`.
+
+### Example
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/sshkeda/pi-council/main/config.schema.json",
   "models": {
-    "claude": { "provider": "your-claude-provider", "model": "your-claude-model" },
-    "gpt": { "provider": "your-gpt-provider", "model": "your-gpt-model" },
-    "gemini": { "provider": "your-gemini-provider", "model": "your-gemini-model" },
-    "grok": { "provider": "your-grok-provider", "model": "your-grok-model" }
+    "claude": { "provider": "claude-code", "model": "claude-opus-4-6" },
+    "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
+    "gemini": { "provider": "google", "model": "gemini-3.1-pro-preview" },
+    "grok": { "provider": "xai", "model": "grok-4.20-reasoning" }
   },
   "profiles": {
     "default": {
-      "models": ["claude", "gpt", "gemini", "grok"]
+      "models": ["claude", "gpt", "gemini", "grok"],
+      "systemPrompt": "You are one member of a multi-model council. Work independently, use your tools, and give your real opinion."
     }
   },
   "defaultProfile": "default"
 }
 ```
 
-**Models** define available AI models by ID → provider/model. **Profiles** are named sets of models with optional system prompt, thinking level (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`), and timeout. You can add custom profiles and switch with `--profile`:
+If you want Claude to run through the `claude-code` provider, install the companion provider package:
 
 ```bash
-pi-council ask --profile my-profile "My question"
+pi install /absolute/path/to/pi-claude-code
 ```
 
+## Using the pi extension
+
+```txt
+spawn_council({ question: "Should we split this package?" })
+council_followup({ type: "steer", message: "Also consider maintenance cost" })
+cancel_council({ runId: "20260413-..." })
+council_status({ runId: "20260413-..." })
+read_stream({ runId: "20260413-...", memberId: "claude" })
+```
+
+## Using via MCPorter
+
+```bash
+mcporter call pi-council.spawn_council --args '{"question":"Should we split this package?"}'
+mcporter call pi-council.council_status runId='20260413-...'
+mcporter call pi-council.read_stream runId='20260413-...' memberId='claude'
+mcporter call pi-council.read_council_results --args '{"runId":"20260413-...","wait":true}'
+```
+
+## Architecture
+
+Each council member is a separate `pi --mode rpc` process.
+
+```text
+orchestrator / MCP client
+        |
+        +--> pi-council
+                +--> claude  (pi --mode rpc)
+                +--> gpt     (pi --mode rpc)
+                +--> gemini  (pi --mode rpc)
+                +--> grok    (pi --mode rpc)
+```
+
+## Results
+
+Artifacts are written to:
+
+```text
+~/.pi-council/runs/<run-id>/
+```
+
+Files:
+- `meta.json`
+- `prompt.txt`
+- `<member>.json`
+- `results.json`
+- `results.md`
 
 ## Development
 
 ```bash
-npm run build        # TypeScript compile
-npm run dev          # Run CLI via tsx
+npm run build
+npm run dev:mcp
+npm test
 ```
 
 ## License

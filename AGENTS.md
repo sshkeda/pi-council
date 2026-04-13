@@ -11,22 +11,20 @@ Tests: `tests/council.test.mjs` (deterministic tests using `tests/mock-pi.mjs`).
 
 ## Usage
 
-```bash
-pi-council ask "your question"
-pi-council ask --profile my-profile "your question"
-pi-council ask --models claude,grok "your question"
-pi-council ask --json "your question"
-pi-council spawn "your question"
-pi-council status
-pi-council watch
-pi-council results
-pi-council list
-pi-council cleanup
+```txt
+# As pi extension tools
+spawn_council({ question: "your question" })
+spawn_council({ question: "your question", profile: "my-profile" })
+spawn_council({ question: "your question", models: ["claude", "grok"] })
+council_status({ runId: "..." })
+read_stream({ runId: "...", memberId: "claude" })
+
+# Via MCPorter
+mcporter call pi-council.spawn_council question='your question'
+mcporter call pi-council.council_status runId='...'
+mcporter call pi-council.read_council_results runId='...' wait=true
 
 # Configuration
-pi-council config                   # Show models, profiles, defaults
-pi-council config path              # Print config file path
-pi-council config init              # Create default config
 # Edit ~/.pi-council/config.json directly for model/profile changes
 ```
 

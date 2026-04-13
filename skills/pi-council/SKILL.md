@@ -66,7 +66,7 @@ Read a member's full accumulated output, stderr, and debug info.
 
 Config file: `~/.pi-council/config.json`
 
-Run `pi-council config` to view current config, `pi-council config path` to print the file path.
+Edit the file directly. Start from this package's `config.default.json` if needed.
 
 ### Schema
 

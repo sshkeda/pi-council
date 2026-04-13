@@ -17,6 +17,7 @@ import {
   rateLimited, overloaded, serverError, httpError,
 } from "../../pi-mock/dist/index.js";
 import { Council } from "../dist/src/core/council.js";
+import * as fs from "node:fs";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1011,6 +1012,7 @@ await test("S13: mixed reliability — one flaky member, two stable", async () =
     `flaky state: ${flaky.state}`);
 });
 
+// ═════════════════════════════════════════════════════════════════════
 // ─── Cleanup ─────────────────────────────────────────────────────────
 
 if (origDir !== undefined) process.env.PI_CODING_AGENT_DIR = origDir;

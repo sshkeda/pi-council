@@ -1,12 +1,12 @@
 {
   "name": "pi-council",
   "version": "0.1.1",
-  "description": "Multi-model AI council \u2014 spawn Claude, GPT, Gemini, and Grok as parallel coding agents to get independent opinions. CLI + pi extension.",
+  "description": "Multi-model AI council — spawn Claude, GPT, Gemini, and Grok as parallel coding agents to get independent opinions. Pi extension + MCP server.",
   "author": "sshkeda",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "pi-council": "./bin/pi-council.js"
+    "pi-council-mcp": "./bin/pi-council-mcp.js"
   },
   "repository": {
     "type": "git",
@@ -33,7 +33,8 @@
     "grok",
     "multi-agent",
     "spawn-council",
-    "cli",
+    "mcp",
+    "mcporter",
     "developer-tools"
   ],
   "pi": {
@@ -50,16 +51,19 @@
   "scripts": {
     "build": "tsc",
     "prepare": "rm -rf dist && tsc",
-    "dev": "node --import tsx src/cli.ts",
+    "dev:mcp": "node --import tsx src/mcp/server.ts",
     "test": "npm run test:all",
     "test:profiles": "npm run build && node tests/profiles.test.mjs",
     "test:integration": "npm run build && node tests/integration.test.mjs",
     "test:live": "npm run build && node tests/live.test.mjs",
-    "test:e2e": "npm run build && node tests/e2e-extension.test.mjs && node tests/ui-ownership.test.mjs && node tests/e2e-cli.test.mjs",
+    "test:e2e": "npm run build && node tests/e2e-extension.test.mjs && node tests/ui-ownership.test.mjs && node tests/e2e-mcp.test.mjs",
     "test:e2e:ext": "npm run build && node tests/e2e-extension.test.mjs && node tests/ui-ownership.test.mjs",
-    "test:e2e:cli": "npm run build && node tests/e2e-cli.test.mjs",
+    "test:e2e:mcp": "npm run build && node tests/e2e-mcp.test.mjs",
     "test:ui-ownership": "npm run build && node tests/ui-ownership.test.mjs",
-    "test:all": "npm run build && node tests/council.test.mjs && node tests/profiles.test.mjs && node tests/integration.test.mjs && node tests/e2e-extension.test.mjs && node tests/ui-ownership.test.mjs && node tests/e2e-cli.test.mjs"
+    "test:all": "npm run build && node tests/council.test.mjs && node tests/profiles.test.mjs && node tests/integration.test.mjs && node tests/e2e-extension.test.mjs && node tests/ui-ownership.test.mjs && node tests/e2e-mcp.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
@@ -71,6 +75,7 @@
     "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*",
     "@types/node": "^22.0.0",
+    "mcporter": "^0.7.3",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   }

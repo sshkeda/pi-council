@@ -48,18 +48,9 @@ export class CouncilMember {
     reject: (err: Error) => void;
   }>();
   private responseIdCounter = 0;
-  /** When true, the next agent_end is from an abort that will be followed by a re-prompt.
-   *  We suppress the done transition so the re-prompt's agent_end is the real completion. */
   private suppressNextAgentEnd = false;
-  /** Resolves when the suppressed agent_end fires, so abort() can await it. */
-  /** Serializes abort calls — only one abort+redirect can run at a time. */
   private abortLock: Promise<void> = Promise.resolve();
   private onceAgentEndSuppressed: (() => void) | undefined;
-  /** Timer for the retry grace window — when we see an error agent_end, we
-   *  wait briefly for auto_retry_start before committing to done. */
-  private retryGraceTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Snapshot of the error agent_end event, held during the grace window. */
-  private pendingErrorEnd: RpcEvent | undefined;
   private sessionStats: unknown = null;
   private toolEvents: unknown[] = [];
 
@@ -117,7 +108,6 @@ export class CouncilMember {
     // Attach error handler IMMEDIATELY to prevent unhandled error crash
     this.child.on("error", (err) => {
       if (this.state === "running" || this.state === "spawning") {
-        this.clearRetryGrace();
         this.state = "failed";
         this.error = `Process error: ${err.message}`;
         this.finishedAt = Date.now();
@@ -151,7 +141,6 @@ export class CouncilMember {
     });
 
     this.child.on("close", (code) => {
-      this.clearRetryGrace();
       this.exitCode = code;
       // Only transition if still running/spawning — agent_end already
       // handles the normal done transition. This catches crashes and
@@ -259,7 +248,6 @@ export class CouncilMember {
    */
   cancel(): void {
     if (this.child && (this.state === "running" || this.state === "spawning")) {
-      this.clearRetryGrace();
       this.state = "cancelled";
       this.finishedAt = Date.now();
       this.emit({ type: "member_failed", memberId: this.id, error: "cancelled" });
@@ -383,31 +371,6 @@ export class CouncilMember {
   private ensureAlive(): void {
     if (!this.child || (this.state !== "running" && this.state !== "done")) {
       throw new Error(`Member ${this.id} is not alive (state: ${this.state})`);
-    }
-  }
-
-  /**
-   * Check if an agent_end event represents an error that pi might auto-retry.
-   * Looks at the last assistant message's stopReason.
-   */
-  private isErrorAgentEnd(event: RpcEvent): boolean {
-    const messages = event.messages;
-    if (!Array.isArray(messages)) return false;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i] as Record<string, unknown> | undefined;
-      if (msg?.role === "assistant") {
-        return msg.stopReason === "error";
-      }
-    }
-    return false;
-  }
-
-  /** Cancel any pending retry grace timer. */
-  private clearRetryGrace(): void {
-    if (this.retryGraceTimer) {
-      clearTimeout(this.retryGraceTimer);
-      this.retryGraceTimer = undefined;
-      this.pendingErrorEnd = undefined;
     }
   }
 
@@ -570,17 +533,10 @@ export class CouncilMember {
     switch (event.type) {
       case "agent_start":
         this.isStreaming = true;
-        // Also cancel retry grace — agent_start means a new cycle is
-        // underway (whether from auto-retry or otherwise). Belt-and-
-        // suspenders alongside auto_retry_start handling.
-        this.clearRetryGrace();
         break;
 
       case "agent_end":
         this.isStreaming = false;
-        // If this agent_end is from an abort that will be followed by a
-        // re-prompt, suppress the done transition. The re-prompt will
-        // produce its own agent_end which becomes the real completion.
         if (this.suppressNextAgentEnd) {
           this.suppressNextAgentEnd = false;
           const cb = this.onceAgentEndSuppressed;
@@ -588,32 +544,7 @@ export class CouncilMember {
           cb?.();
           break;
         }
-        // Extract clean output and thinking from the final message's typed
-        // content blocks. This is the authoritative source — it properly
-        // separates text from thinking even when streaming deltas were
-        // misclassified (e.g. OpenRouter sending thinking as text_delta).
         this.extractFromFinalMessage(event);
-
-        // Check if this is an error agent_end that pi might auto-retry.
-        // Pi emits: agent_end(error) → auto_retry_start → agent_start → ... → agent_end(success)
-        // We defer the done transition for a grace window to catch the retry.
-        if (this.state === "running" && this.isErrorAgentEnd(event)) {
-          this.pendingErrorEnd = event;
-          this.retryGraceTimer = setTimeout(() => {
-            // No auto_retry_start arrived — pi isn't retrying.
-            // Commit to done with whatever output the error cycle produced.
-            this.pendingErrorEnd = undefined;
-            this.retryGraceTimer = undefined;
-            // Guard: only transition if still running. close/error/cancel
-            // may have already moved us to a terminal state.
-            if (this.state !== "running") return;
-            this.captureStats().catch(() => {});
-            this.finishRun();
-          }, 1000);
-          break;
-        }
-
-        // Normal (non-error) agent_end — commit immediately.
         this.captureStats().catch(() => {});
         if (this.state === "running") {
           this.finishRun();
@@ -621,17 +552,6 @@ export class CouncilMember {
         break;
 
       case "auto_retry_start":
-        // Pi is retrying after an error agent_end. Cancel the grace timer
-        // and stay in "running" state. The retry cycle will produce a fresh
-        // agent_start → streaming → agent_end sequence.
-        if (this.pendingErrorEnd) {
-          clearTimeout(this.retryGraceTimer!);
-          this.pendingErrorEnd = undefined;
-          this.retryGraceTimer = undefined;
-          // Reset output/thinking — the retry produces fresh content.
-          this.output = "";
-          this.thinking = "";
-        }
         break;
 
       case "message_update": {

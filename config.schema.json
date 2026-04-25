@@ -27,7 +27,7 @@
           },
           "model": {
             "type": "string",
-            "description": "Concrete model ID/name passed to pi"
+            "description": "Concrete model ID/name passed to pi, or the openai-codex-only dynamic alias gpt-latest-thinking"
           }
         }
       }

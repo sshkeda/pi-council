@@ -74,7 +74,7 @@ Edit the file directly. Start from this package's `config.default.json` if neede
 {
   "systemPrompt": "base system prompt for all council members",
   "models": {
-    "<id>": { "provider": "<provider>", "model": "<model-name>" }
+    "<id>": { "provider": "<provider>", "model": "<model-name-or-alias>" }
   },
   "profiles": {
     "<name>": {
@@ -119,6 +119,14 @@ This is an example showing what's possible. Do NOT assume these profiles exist â
 
 To add a model or profile, read `~/.pi-council/config.json` and edit it directly.
 The config supports the full schema above including `systemPrompt` and `memberTimeoutMs` per profile.
+
+### Dynamic model aliases
+
+Model names can be concrete IDs or the narrow GPT alias `gpt-latest-thinking`. This alias resolves at council spawn time to the newest thinking-capable `openai-codex` GPT model from `pi --list-models gpt`.
+
+This is intentionally GPT/openai-codex-only. It does not auto-resolve Gemini, Grok, Claude, OpenRouter GPTs, or arbitrary provider "latest" aliases.
+
+The alias preserves Pi's thinking shorthand, e.g. `gpt-latest-thinking:high` resolves to the newest thinking-capable `openai-codex` GPT and passes `:high` through.
 
 ## Results location
 All run artifacts at `~/.pi-council/runs/<run-id>/`:

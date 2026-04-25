@@ -27,6 +27,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { Council, CouncilRegistry } = await import("../dist/src/core/council.js");
 const { CouncilMember } = await import("../dist/src/core/member.js");
 const { loadConfig, resolveProfile, resolveModelIds, getDefaultConfig } = await import("../dist/src/core/config.js");
+const { clearModelResolverCache } = await import("../dist/src/core/model-resolver.js");
 const { generateRunId } = await import("../dist/src/util/run-id.js");
 
 let passed = 0;
@@ -124,6 +125,54 @@ await test("T8: resolveProfile returns all models for default profile", async ()
   const config = getDefaultConfig();
   const resolved = resolveProfile(config);
   assert(resolved.models.length === 4, "all 4");
+});
+
+await test("T8b: resolveProfile auto-resolves gpt-latest-thinking aliases", async () => {
+  process.env.PI_COUNCIL_MODEL_LIST_JSON = JSON.stringify([
+    { provider: "openai-codex", model: "gpt-5.3-codex", thinking: true },
+    { provider: "openai-codex", model: "gpt-5.4-mini", thinking: true },
+    { provider: "openai-codex", model: "gpt-5.4", thinking: true },
+    { provider: "openai-codex", model: "gpt-5.5", thinking: true },
+    { provider: "openrouter", model: "openai/gpt-5.4-pro", thinking: true },
+  ]);
+  clearModelResolverCache();
+  try {
+    const config = {
+      models: {
+        gpt: { provider: "openai-codex", model: "gpt-latest-thinking" },
+      },
+      profiles: { default: { models: ["gpt"] } },
+      defaultProfile: "default",
+    };
+    const resolved = resolveProfile(config);
+    assert(resolved.models[0].model === "gpt-5.5", `resolved ${resolved.models[0].model}`);
+  } finally {
+    delete process.env.PI_COUNCIL_MODEL_LIST_JSON;
+    clearModelResolverCache();
+  }
+});
+
+await test("T8c: GPT latest alias is intentionally openai-codex only", async () => {
+  process.env.PI_COUNCIL_MODEL_LIST_JSON = JSON.stringify([
+    { provider: "openai-codex", model: "gpt-5.5", thinking: true },
+    { provider: "openrouter", model: "openai/gpt-5.6", thinking: true },
+  ]);
+  clearModelResolverCache();
+  try {
+    const config = {
+      models: {
+        gpt: { provider: "openrouter", model: "gpt-latest-thinking" },
+      },
+      profiles: { default: { models: ["gpt"] } },
+      defaultProfile: "default",
+    };
+    let threw = false;
+    try { resolveModelIds(config, ["gpt"]); } catch { threw = true; }
+    assert(threw, "non-openai-codex alias throws instead of resolving to another provider");
+  } finally {
+    delete process.env.PI_COUNCIL_MODEL_LIST_JSON;
+    clearModelResolverCache();
+  }
 });
 
 await test("T9: Run IDs are unique", async () => {

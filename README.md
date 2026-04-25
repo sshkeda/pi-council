@@ -95,7 +95,7 @@ There is no pi-council CLI anymore. Create or edit the config file directly. You
   "$schema": "https://raw.githubusercontent.com/sshkeda/pi-council/main/config.schema.json",
   "models": {
     "claude": { "provider": "claude-code", "model": "claude-opus-4-6" },
-    "gpt": { "provider": "openai-codex", "model": "gpt-5.4" },
+    "gpt": { "provider": "openai-codex", "model": "gpt-latest-thinking" },
     "gemini": { "provider": "google", "model": "gemini-3.1-pro-preview" },
     "grok": { "provider": "xai", "model": "grok-4.20-reasoning" }
   },
@@ -108,6 +108,8 @@ There is no pi-council CLI anymore. Create or edit the config file directly. You
   "defaultProfile": "default"
 }
 ```
+
+`gpt-latest-thinking` is resolved at spawn time to the newest thinking-capable `openai-codex` GPT model from `pi --list-models gpt`. This resolver is intentionally narrow: it does not auto-resolve Gemini, Grok, Claude, OpenRouter GPTs, or arbitrary provider "latest" aliases. Pi's thinking shorthand is preserved, e.g. `gpt-latest-thinking:high`.
 
 If you want Claude to run through the `claude-code` provider, install the companion provider package:
 

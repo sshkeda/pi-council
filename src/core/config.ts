@@ -10,6 +10,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ModelSpec } from "./types.js";
+import { resolveDynamicModelAlias } from "./model-resolver.js";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -222,7 +223,7 @@ export function resolveProfile(
   for (const id of profileDef.models) {
     const def = config.models[id];
     if (def) {
-      models.push({ id, provider: def.provider, model: def.model });
+      models.push({ id, provider: def.provider, model: resolveDynamicModelAlias(def.provider, def.model) });
     }
   }
 
@@ -256,7 +257,7 @@ export function resolveModelIds(
     );
     if (key) {
       const def = config.models[key];
-      models.push({ id: key, provider: def.provider, model: def.model });
+      models.push({ id: key, provider: def.provider, model: resolveDynamicModelAlias(def.provider, def.model) });
     }
   }
   return models;

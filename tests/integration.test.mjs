@@ -696,7 +696,7 @@ await test("S9: response builders produce correct tool calls and SSE error", asy
   const c3 = new Council("write builder");
   c3.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
   const call3 = await cb.waitForCall(3000);
-  call3.respond(writeTool("new-file.ts", "export const x = 1;"));
+  call3.respond(writeTool(join(agentDir, "new-file.ts"), "export const x = 1;"));
   const call3b = await cb.waitForCall(3000);
   call3b.respond(text("Written."));
   const r3 = await c3.waitForCompletion();

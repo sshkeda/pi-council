@@ -1,7 +1,7 @@
 {
   "name": "pi-council",
   "version": "0.1.1",
-  "description": "Multi-model AI council — spawn Claude, GPT, Gemini, and Grok as parallel coding agents to get independent opinions. Pi extension + MCP server.",
+  "description": "Multi-model AI council — spawn configured pi models as parallel coding agents to get independent opinions. Pi extension + MCP server.",
   "author": "sshkeda",
   "license": "MIT",
   "type": "module",

@@ -27,7 +27,7 @@
           },
           "model": {
             "type": "string",
-            "description": "Concrete model ID/name passed to pi, or the openai-codex-only dynamic alias gpt-latest-thinking"
+            "description": "Concrete model ID/name passed to pi unchanged"
           }
         }
       }
@@ -50,8 +50,8 @@
           },
           "systemPrompt": {
             "type": "string",
-            "description": "System prompt for members in this profile. Required for the prompt to be set — there is no built-in fallback."
-          },
+            "description": "System prompt for members in this profile. If omitted, a deprecated top-level systemPrompt is used when present."
+          }
           "thinking": {
             "type": "string",
             "enum": ["off", "minimal", "low", "medium", "high", "xhigh"],

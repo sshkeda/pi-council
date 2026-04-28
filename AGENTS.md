@@ -1,45 +1,62 @@
-# pi-council
+# pi-council agent notes
 
-Multi-model council tool. Spawns different AI models in parallel for independent opinions via RPC.
+pi-council spawns independent `pi --mode rpc` member processes and collects their answers for comparison. Keep docs concise and avoid duplicating README prose here.
 
-## Architecture
+## Main files
 
-Each council member is a `pi --mode rpc` process with bidirectional stdin/stdout communication.
-Core: `src/core/council.ts` (Council manager), `src/core/member.ts` (RPC member), `src/core/types.ts`, `src/core/profiles.ts`, `src/core/config.ts`.
-Extension: `extensions/pi-council/index.ts` (spawn_council, council_followup, cancel_council, council_status, read_stream).
-Tests: `tests/council.test.mjs` (deterministic tests using `tests/mock-pi.mjs`).
+- `src/core/council.ts` — run lifecycle, member orchestration, persistence, follow-ups, cancellation.
+- `src/core/member.ts` — RPC process wrapper for one `pi` member.
+- `src/core/config.ts` — `~/.pi-council/config.json` loading, validation, profile/model resolution.
+- `src/core/runs.ts` and `src/core/storage.ts` — persisted run lookup and cleanup.
+- `src/core/types.ts` — shared public types.
+- `extensions/pi-council/index.ts` — pi extension tools and status widget.
+- `src/mcp/server.ts` — MCP tool server.
+- `skills/pi-council/SKILL.md` — skill instructions shown to pi agents.
+- `config.default.json` and `config.schema.json` — user config template and schema.
 
-## Usage
+## Public tools
+
+Pi extension:
 
 ```txt
-# As pi extension tools
-spawn_council({ question: "your question" })
-spawn_council({ question: "your question", profile: "my-profile" })
-spawn_council({ question: "your question", models: ["claude", "grok"] })
-council_status({ runId: "..." })
-read_stream({ runId: "...", memberId: "claude" })
-
-# Via MCPorter
-mcporter call pi-council.spawn_council question='your question'
-mcporter call pi-council.council_status runId='...'
-mcporter call pi-council.read_council_results runId='...' wait=true
-
-# Configuration
-# Edit ~/.pi-council/config.json directly for model/profile changes
+spawn_council({ question, profile?, models?, label? })
+council_followup({ message, type, runId?, memberIds? })
+cancel_council({ runId?, memberIds? })
+council_status({ runId? })
+read_stream({ runId?, memberId })
 ```
 
-Default models: `claude`, `gpt`, `gemini`, `grok`
-Config: `~/.pi-council/config.json` (models map + named profiles + defaultProfile)
+MCP also exposes:
 
-## Key design
+```txt
+list_council_runs({})
+read_council_results({ runId?, wait?, timeoutMs? })
+cleanup_council_runs({ runId? | all? })
+```
 
-- Each model is a separate pi agent with its own tools via RPC
-- Models do their own independent research
-- The orchestrator can send follow-ups (steer/abort) mid-flight
-- The point is surfacing **disagreement**, not consensus
-- The orchestrator should prompt neutrally — no bias injection
-- Per-member results written to disk as each member finishes
-- Config: `~/.pi-council/config.json` with models map, named profiles, defaultProfile
-- Profiles support custom system prompts and per-member timeouts
-- `--profile <name>` flag on ask/spawn, `profile` param on spawn_council extension tool
+## Runtime behavior
 
+- Config is read from `~/.pi-council/config.json`; there is no config CLI.
+- Profiles select model IDs from the top-level `models` map and may set `systemPrompt`, `thinking`, and `memberTimeoutMs`.
+- Deprecated top-level `systemPrompt` is still used as a fallback for profiles without one.
+- Model names are passed through unchanged; use concrete model IDs from the local pi install.
+- Run artifacts are stored in `~/.pi-council/runs/<run-id>/`.
+- Members are launched with `PI_COUNCIL_MEMBER=1`; the extension must not register council tools in that environment.
+
+## Design rules
+
+- Preserve model independence. Do not share one member's analysis with another unless the user explicitly sends a follow-up.
+- Prompt neutrally. The council's value is disagreement, not confirmation of the orchestrator's opinion.
+- Do not poll after spawning in interactive sessions; results are auto-delivered.
+- Persist per-member results as soon as each member finishes.
+- Avoid adding hard-coded model defaults in TypeScript; use `config.default.json` for templates.
+
+## Tests
+
+```bash
+npm run build
+npm test
+npm run test:e2e
+```
+
+Current e2e scripts run extension and MCP coverage. The old UI ownership test was removed.

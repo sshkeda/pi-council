@@ -1,154 +1,112 @@
 ---
 name: pi-council
 description: >
-  Spawn multiple AI models (Claude, GPT, Gemini, Grok) as independent pi agents
-  to get parallel opinions on any question. Use when you need diverse model perspectives
-  on architecture decisions, investment analysis, code review, or any high-stakes question.
-version: 0.1.0
+  Spawn multiple AI models (Claude, GPT, Gemini, Grok, or any configured model IDs)
+  as independent pi agents. Use for diverse perspectives on architecture decisions,
+  code review, product strategy, research, or other high-stakes questions.
+version: 0.1.1
 license: MIT
 ---
 
 # pi-council
 
-Spawns multi-model AI agents in parallel via RPC. Each model is its own pi coding agent with
-tools and full bidirectional communication.
+Use pi-council when independent model opinions are more valuable than one synthesized answer. Each council member is a separate `pi --mode rpc` process with its own tools and context.
 
-## Core principle: UNBIASED PROMPTING
+## Critical rule: prompt neutrally
 
-When formulating a council question, you MUST strip your own conclusions, opinions, and biases.
-The value of the council is in receiving genuinely independent perspectives. If you lead the
-models toward your preferred answer, you defeat the purpose.
+The council only works if members are not led toward your preferred answer.
 
-**DO:**
-- Present the raw situation and constraints neutrally
-- Include relevant context (code, data, requirements) without editorializing
-- Ask open-ended questions: "What approach would you recommend?"
+Do:
+- Present the raw question, constraints, relevant files/data, and decision criteria.
+- Ask open-endedly: "What approach do you recommend and why?"
+- Include uncertainty and tradeoffs.
 
-**DON'T:**
-- Include your own analysis or preferred solution
-- Frame the question to lead toward a specific answer
-- Cherry-pick context that supports one conclusion
+Do not:
+- Include your own conclusion or preferred solution.
+- Frame the prompt to validate one answer.
+- Hide important context that weakens one option.
 
-The differing opinions ARE the product. They give you signal you can't get from a single model.
-
-## Pi extension tools
+## Tools
 
 ### spawn_council
-Spawn a council. Returns immediately — results auto-delivered as each member finishes.
+
+Spawns a council. In interactive sessions it returns immediately; results are delivered automatically as each member finishes and again as a final summary.
 
 Parameters:
-- `question` (required): The question for the council. Frame it neutrally.
-- `profile` (optional): Named profile from config. Omit to use the `defaultProfile`. Only pass a profile name you have confirmed exists in the user's config.
-- `models` (optional): Array of model IDs e.g. `["claude", "grok"]`. Overrides profile if both given.
-- `label` (optional): Short label for status widget.
+- `question` (required): neutral council prompt.
+- `profile` (optional): named profile from `~/.pi-council/config.json`; omit to use `defaultProfile`.
+- `models` (optional): explicit model IDs, e.g. `["claude", "gpt"]`; overrides profile model selection.
+- `label` (optional): short status-widget label.
 
 ### council_followup
-Send a follow-up to running council members.
+
+Sends more context to running members.
 
 Parameters:
-- `message` (required): The follow-up message
-- `type` (required): `"abort"` (interrupt immediately) or `"steer"` (queue after current tool call)
-- `runId` (optional): Target specific council run
-- `memberIds` (optional): Target specific members
+- `message` (required): follow-up text.
+- `type` (required): `"steer"` queues after the current tool call; `"abort"` interrupts and redirects.
+- `runId` (optional): target run; omit for latest live run.
+- `memberIds` (optional): target members; omit for all running members.
 
 ### cancel_council
-Cancel a running council or specific members.
+
+Cancels a live council or selected members.
 
 ### council_status
-Get detailed status of all council members — state, elapsed time, streaming status, stderr, output length.
-**Only use when something seems stuck or the user explicitly asks.** Do NOT poll after spawning.
+
+Shows detailed live status. Use only if something appears stuck or the user explicitly asks. Do not poll after `spawn_council`.
 
 ### read_stream
-Read a member's full accumulated output, stderr, and debug info.
-**Only use to re-read a past result or when the user asks.** Output is auto-delivered via followUp.
+
+Reads a member's accumulated output/thinking/stderr. Use only to re-read a result or when the user asks; normal results are auto-delivered.
 
 ## Configuration
 
-Config file: `~/.pi-council/config.json`
+Config file: `~/.pi-council/config.json`.
 
-Edit the file directly. Start from this package's `config.default.json` if needed.
+Template/schema files in the package:
+- `config.default.json`
+- `config.schema.json`
 
-### Schema
+Shape:
 
 ```json
 {
-  "systemPrompt": "base system prompt for all council members",
   "models": {
-    "<id>": { "provider": "<provider>", "model": "<model-name-or-alias>" }
+    "<id>": { "provider": "<pi-provider>", "model": "<model-name>" }
   },
   "profiles": {
     "<name>": {
-      "models": ["<model-id>", ...],
-      "systemPrompt": "optional custom system prompt for this profile",
+      "models": ["<id>"],
+      "systemPrompt": "optional member system prompt",
       "thinking": "off | minimal | low | medium | high | xhigh",
       "memberTimeoutMs": 120000
     }
   },
-  "defaultProfile": "<profile-name>"
+  "defaultProfile": "<name>"
 }
 ```
 
-### Invariants
-- Every model ID in a profile's `models` array must exist in the top-level `models` map
-- `defaultProfile` must reference an existing profile name
-- At least one profile must exist
-- If a profile omits `systemPrompt`, no system prompt is appended to members
+Rules:
+- Every profile model ID must exist in `models`.
+- `defaultProfile` must name an existing profile.
+- A deprecated top-level `systemPrompt` still works as fallback for profiles without `systemPrompt`.
+- If no profile/top-level prompt is set, members receive no extra council system prompt.
 
-### Example config
+Model names are passed to pi unchanged. Use concrete model IDs supported by the user's local `pi --list-models` output.
 
-This is an example showing what's possible. Do NOT assume these profiles exist — always omit `profile` to use the default unless the user explicitly asks for a specific one.
+## Results
 
-```json
-{
-  "models": {
-    "claude": { "provider": "your-claude-provider", "model": "your-claude-model" },
-    "gpt": { "provider": "your-gpt-provider", "model": "your-gpt-model" },
-    "gemini": { "provider": "your-gemini-provider", "model": "your-gemini-model" },
-    "grok": { "provider": "your-grok-provider", "model": "your-grok-model" }
-  },
-  "profiles": {
-    "default": {
-      "models": ["claude", "gpt", "gemini", "grok"]
-    }
-  },
-  "defaultProfile": "default"
-}
-```
+Artifacts are written to `~/.pi-council/runs/<run-id>/`:
+- `meta.json`
+- `prompt.txt`
+- `<member>.json`
+- `results.json`
+- `results.md`
 
-### Customizing
+## Operating guidance
 
-To add a model or profile, read `~/.pi-council/config.json` and edit it directly.
-The config supports the full schema above including `systemPrompt` and `memberTimeoutMs` per profile.
-
-### Dynamic model aliases
-
-Model names can be concrete IDs or the narrow GPT alias `gpt-latest-thinking`. This alias resolves at council spawn time to the newest thinking-capable `openai-codex` GPT model from `pi --list-models gpt`.
-
-This is intentionally GPT/openai-codex-only. It does not auto-resolve Gemini, Grok, Claude, OpenRouter GPTs, or arbitrary provider "latest" aliases.
-
-The alias preserves Pi's thinking shorthand, e.g. `gpt-latest-thinking:high` resolves to the newest thinking-capable `openai-codex` GPT and passes `:high` through.
-
-## Results location
-All run artifacts at `~/.pi-council/runs/<run-id>/`:
-- `meta.json` — run metadata (prompt, models, startedAt)
-- `prompt.txt` — raw prompt text
-- `<member>.json` — per-member result (written as each finishes)
-- `results.json` — combined result (written when all done)
-- `results.md` — human-readable combined result
-
-## Key design
-- Each model is a separate pi instance with independent context via RPC
-- Models do their own research — they are NOT given the same evidence
-- The orchestrator can send follow-ups (steer/abort) to redirect members mid-flight
-- The point is surfacing **disagreement**, not consensus
-- The orchestrator synthesizes the final answer from diverse perspectives
-- Per-member results are written to disk immediately — they survive context compaction
-- **Council members cannot spawn nested councils.** When a member is spawned, the env var
-  `PI_COUNCIL_MEMBER=1` is set, which causes the extension to skip registering all council
-  tools. The model cannot call spawn_council because the tool does not exist in its session.
-
-## IMPORTANT: Do NOT poll after spawning
-Results are auto-delivered as followUp messages — each member's output arrives as it finishes,
-and a final summary arrives when all are done. After calling spawn_council, continue your other
-work or wait for the followUps. Do NOT call council_status or read_stream in a polling loop.
-Only use those tools if something seems stuck (>60s with no results) or the user explicitly asks.
+- After spawning, continue foreground work or wait for auto-delivered follow-ups.
+- Do not call `council_status`/`read_stream` in a polling loop.
+- Pay attention to dissenting members; disagreement is often the useful signal.
+- Council members cannot spawn nested councils because child sessions run with `PI_COUNCIL_MEMBER=1` and council tools are not registered.

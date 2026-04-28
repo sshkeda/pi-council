@@ -6,6 +6,9 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { StringDecoder } from "node:string_decoder";
 import type { ModelSpec, MemberState, MemberStatus, CouncilEvent } from "./types.js";
 
@@ -22,6 +25,24 @@ interface RpcResponse {
 interface RpcEvent {
   type: string;
   [key: string]: unknown;
+}
+
+function resolvePiContinueExtensionPath(): string | undefined {
+  if (process.env.PI_COUNCIL_DISABLE_PI_CONTINUE === "1") return undefined;
+
+  const explicit = process.env.PI_COUNCIL_PI_CONTINUE_PATH;
+  if (explicit && existsSync(explicit)) return explicit;
+
+  const here = dirname(fileURLToPath(import.meta.url));
+  // Source loads from src/core/member.ts; built output loads from
+  // dist/src/core/member.js. Try both package-root depths, then cwd.
+  const candidates = [
+    resolve(here, "..", "..", "..", "pi-continue", "index.ts"),
+    resolve(here, "..", "..", "..", "..", "pi-continue", "index.ts"),
+    resolve(process.cwd(), "..", "pi-continue", "index.ts"),
+  ];
+
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 export class CouncilMember {
@@ -53,6 +74,8 @@ export class CouncilMember {
   private onceAgentEndSuppressed: (() => void) | undefined;
   private sessionStats: unknown = null;
   private toolEvents: unknown[] = [];
+  private emptyOutputContinueAttempted = false;
+  private piContinueAvailable = false;
 
   constructor(id: string, model: ModelSpec) {
     this.id = id;
@@ -94,6 +117,12 @@ export class CouncilMember {
 
     if (thinking) {
       piArgs.push("--thinking", thinking);
+    }
+
+    const piContinuePath = resolvePiContinueExtensionPath();
+    this.piContinueAvailable = !!piContinuePath;
+    if (piContinuePath) {
+      piArgs.push("--extension", piContinuePath);
     }
 
     // Support running scripts: piBinary="node", piBinaryArgs=["mock-pi.mjs"]
@@ -211,6 +240,7 @@ export class CouncilMember {
         }
         this.output = "";
         this.thinking = "";
+        this.emptyOutputContinueAttempted = false;
         const prevState = this.state;
         try {
           this.state = "running";
@@ -377,6 +407,20 @@ export class CouncilMember {
   private finishRun(): void {
     this.finishedAt = Date.now();
     if (this.output.trim().length === 0) {
+      const hasUsefulWork = this.thinking.trim().length > 0 || this.toolEvents.length > 0;
+      if (hasUsefulWork && this.piContinueAvailable && !this.emptyOutputContinueAttempted) {
+        this.emptyOutputContinueAttempted = true;
+        this.state = "running";
+        this.finishedAt = undefined;
+        this.sendRpcCommand({ type: "prompt", message: "/continue" }).catch((err) => {
+          this.state = "failed";
+          this.error = `Empty-output /continue failed: ${err instanceof Error ? err.message : String(err)}`;
+          this.finishedAt = Date.now();
+          this.emit({ type: "member_failed", memberId: this.id, error: this.error });
+        });
+        return;
+      }
+
       this.state = "failed";
       this.error = CouncilMember.EMPTY_OUTPUT_ERROR;
       this.emit({ type: "member_failed", memberId: this.id, error: this.error });

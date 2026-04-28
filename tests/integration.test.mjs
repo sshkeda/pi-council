@@ -131,11 +131,17 @@ await test("S1: spawn → thinking → tool call → text → complete → artif
   c2.spawn({ models: [{ id: "m0", provider: "pi-mock", model: "mock" }] });
   const call3 = await cb.waitForCall(3000);
   call3.respond([thinking("I have nothing to say")]);
+  try {
+    const retry = await cb.waitForCall(1000);
+    retry.respond([thinking("Still no visible answer")]);
+  } catch {
+    // pi-continue extension is optional in local/dev installs.
+  }
   const r2 = await c2.waitForCompletion();
   assert(r2.members[0].state === "failed", "thinking-only marked failed");
   assert(r2.members[0].error === "Member completed with empty output", `error: ${r2.members[0].error}`);
   assert(r2.members[0].output === "", "empty output for thinking-only");
-  assert(r2.members[0].thinking.includes("nothing"), "thinking captured");
+  assert(r2.members[0].thinking.length > 0, "thinking captured");
 
   // Large output
   cb = createControllableBrain(); gw.setBrain(cb.brain);

@@ -1970,7 +1970,7 @@ await test("T91: Extension registers tools normally when PI_COUNCIL_MEMBER is no
     assert(registeredTools.includes("council_followup"), "has council_followup");
     assert(registeredTools.includes("cancel_council"), "has cancel_council");
     assert(registeredTools.includes("council_status"), "has council_status");
-    assert(registeredTools.includes("read_stream"), "has read_stream");
+    assert(registeredTools.includes("read_council_stream"), "has read_council_stream");
   } finally {
     if (originalEnv !== undefined) {
       process.env.PI_COUNCIL_MEMBER = originalEnv;

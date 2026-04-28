@@ -6,7 +6,7 @@
  *   council_followup — send abort/steer to running members
  *   cancel_council   — cancel individual member or entire council
  *   council_status   — get status of all members
- *   read_stream      — read a member's accumulated output
+ *   read_council_stream      — read a member's accumulated output
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -174,7 +174,7 @@ export default function (pi: ExtensionAPI) {
       "The point is surfacing disagreement, not consensus. Pay attention to the dissenter.",
       "IMPORTANT: When formulating the question, strip your own conclusions and opinions. Present context neutrally. Do NOT lead the models toward a particular answer. The value comes from unbiased, independent perspectives.",
       "Do NOT include your own analysis or preferred solution in the question. Instead, present the raw situation and ask for their assessment.",
-      "Do NOT poll council_status or read_stream after spawning. Results are auto-delivered as followUp messages — just wait for them. Only use council_status/read_stream if something seems stuck or the user explicitly asks.",
+      "Do NOT poll council_status or read_council_stream after spawning. Results are auto-delivered as followUp messages — just wait for them. Only use council_status/read_council_stream if something seems stuck or the user explicitly asks.",
     ],
     parameters: Type.Object({
       question: Type.String({ description: "Question for the council. Frame it neutrally — do not inject your own opinions or conclusions." }),
@@ -518,9 +518,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ─── read_stream ───────────────────────────────────────────────────
+  // ─── read_council_stream ───────────────────────────────────────────────────
   pi.registerTool({
-    name: "read_stream",
+    name: "read_council_stream",
     label: "Read Council Stream",
     description:
       "Read the accumulated output of a specific council member. " +

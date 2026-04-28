@@ -23,7 +23,7 @@ spawn_council({ question, profile?, models?, label? })
 council_followup({ message, type, runId?, memberIds? })
 cancel_council({ runId?, memberIds? })
 council_status({ runId? })
-read_stream({ runId?, memberId })
+read_council_stream({ runId?, memberId })
 ```
 
 MCP also exposes:

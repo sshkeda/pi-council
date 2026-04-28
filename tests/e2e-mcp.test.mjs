@@ -217,7 +217,7 @@ await test("MCP1: direct SDK client can list tools, spawn a council, inspect liv
     assert(results.source === "live", `results source: ${JSON.stringify(results)}`);
     assert(results.result.members[0].output === "hi", `result output: ${results.result.members[0].output}`);
 
-    const stream = await callToolJson(session.client, "read_stream", {
+    const stream = await callToolJson(session.client, "read_council_stream", {
       runId: spawned.runId,
       memberId: "claude",
     });
@@ -275,7 +275,7 @@ await test("MCP2: completed runs remain readable from a fresh MCP server process
     assert(status.status === "complete", `fresh status value: ${JSON.stringify(status)}`);
     assert(status.results.members[0].output === "persisted answer", "disk status carries result");
 
-    const stream = await callToolJson(freshSession.client, "read_stream", {
+    const stream = await callToolJson(freshSession.client, "read_council_stream", {
       runId,
       memberId: "claude",
     });

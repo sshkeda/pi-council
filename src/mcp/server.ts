@@ -70,7 +70,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "read_stream",
+    name: "read_council_stream",
     description: "Read a member's accumulated output/thinking/stderr from a live council or persisted member file.",
     inputSchema: {
       type: "object",
@@ -200,7 +200,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         throw new Error(runId ? `Unknown runId: ${runId}` : "No council runs found.");
       }
 
-      case "read_stream": {
+      case "read_council_stream": {
         const memberId = String(args.memberId ?? "").trim();
         if (!memberId) throw new Error("memberId is required");
         const runId = typeof args.runId === "string" ? args.runId : undefined;

@@ -56,7 +56,7 @@ Cancels a live council or selected members.
 
 Shows detailed live status. Use only if something appears stuck or the user explicitly asks. Do not poll after `spawn_council`.
 
-### read_stream
+### read_council_stream
 
 Reads a member's accumulated output/thinking/stderr. Use only to re-read a result or when the user asks; normal results are auto-delivered.
 
@@ -107,6 +107,6 @@ Artifacts are written to `~/.pi-council/runs/<run-id>/`:
 ## Operating guidance
 
 - After spawning, continue foreground work or wait for auto-delivered follow-ups.
-- Do not call `council_status`/`read_stream` in a polling loop.
+- Do not call `council_status`/`read_council_stream` in a polling loop.
 - Pay attention to dissenting members; disagreement is often the useful signal.
 - Council members cannot spawn nested councils because child sessions run with `PI_COUNCIL_MEMBER=1` and council tools are not registered.

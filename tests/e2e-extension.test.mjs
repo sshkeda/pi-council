@@ -5,7 +5,7 @@
  *
  * Uses createMock to spin up a real pi instance with the extension,
  * then simulates Claude/Codex calling spawn_council, council_status,
- * read_stream, council_followup, and cancel_council.
+ * read_council_stream, council_followup, and cancel_council.
  *
  * In pi-mock, the extension runs in INTERACTIVE mode (ctx.hasUI = true):
  *   - spawn_council returns immediately with "Council spawned..."
@@ -296,12 +296,12 @@ await test("E2E3: council_status returns member info after completion", async ()
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// E2E: read_stream
+// E2E: read_council_stream
 // ═══════════════════════════════════════════════════════════════════════
 
-process.stdout.write("\n── read_stream ──\n");
+process.stdout.write("\n── read_council_stream ──\n");
 
-await test("E2E4: read_stream returns member output after completion", async () => {
+await test("E2E4: read_council_stream returns member output after completion", async () => {
   const cb = createControllableBrain();
   const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
   writeTestConfig(testHome, [{ id: "claude", provider: "anthropic", model: "mock-claude" }]);
@@ -331,14 +331,14 @@ await test("E2E4: read_stream returns member output after completion", async () 
     orch2.respond(text("Spawned."));
     claudeCall.respond(text("Detailed analysis from Claude member."));
 
-    // Turn 2: after followUp, call read_stream
+    // Turn 2: after followUp, call read_council_stream
     const orchCall3 = await cb.waitForCall({ model: "mock" }, 20000);
-    orchCall3.respond(toolCall("read_stream", { memberId: "claude" }));
+    orchCall3.respond(toolCall("read_council_stream", { memberId: "claude" }));
 
     const orchCall4 = await cb.waitForCall({ model: "mock" }, 10000);
     const streamResult = getConversationText(orchCall4.request);
-    assert(streamResult.includes("Detailed analysis"), "read_stream has member output");
-    assert(streamResult.includes("CLAUDE"), "read_stream has member ID header");
+    assert(streamResult.includes("Detailed analysis"), "read_council_stream has member output");
+    assert(streamResult.includes("CLAUDE"), "read_council_stream has member ID header");
 
     orchCall4.respond(text("Output received."));
   } finally {
@@ -347,7 +347,7 @@ await test("E2E4: read_stream returns member output after completion", async () 
   }
 });
 
-await test("E2E5: read_stream for unknown member returns error", async () => {
+await test("E2E5: read_council_stream for unknown member returns error", async () => {
   const cb = createControllableBrain();
   const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
   writeTestConfig(testHome, [{ id: "claude", provider: "anthropic", model: "mock-claude" }]);
@@ -380,7 +380,7 @@ await test("E2E5: read_stream for unknown member returns error", async () => {
 
     // Turn 2: read nonexistent member
     const orchCall3 = await cb.waitForCall({ model: "mock" }, 20000);
-    orchCall3.respond(toolCall("read_stream", { memberId: "nonexistent" }));
+    orchCall3.respond(toolCall("read_council_stream", { memberId: "nonexistent" }));
 
     const orchCall4 = await cb.waitForCall({ model: "mock" }, 10000);
     const result = getConversationText(orchCall4.request);
@@ -570,7 +570,7 @@ await test("E2E9: cancel_council with no council returns gracefully", async () =
   }
 });
 
-await test("E2E10: read_stream with no council returns gracefully", async () => {
+await test("E2E10: read_council_stream with no council returns gracefully", async () => {
   const cb = createControllableBrain();
   const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
   writeTestConfig(testHome);
@@ -585,7 +585,7 @@ await test("E2E10: read_stream with no council returns gracefully", async () => 
     await mock.prompt("Read nothing.");
 
     const orchCall1 = await cb.waitForCall({ model: "mock" }, 10000);
-    orchCall1.respond(toolCall("read_stream", { memberId: "claude" }));
+    orchCall1.respond(toolCall("read_council_stream", { memberId: "claude" }));
 
     const orchCall2 = await cb.waitForCall({ model: "mock" }, 10000);
     const result = getConversationText(orchCall2.request);
@@ -710,12 +710,12 @@ await test("E2E12: Two sequential councils produce separate results", async () =
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// E2E: Tool chaining — spawn then status then read_stream
+// E2E: Tool chaining — spawn then status then read_council_stream
 // ═══════════════════════════════════════════════════════════════════════
 
 process.stdout.write("\n── Tool chaining ──\n");
 
-await test("E2E13: spawn → status → read_stream in sequence", async () => {
+await test("E2E13: spawn → status → read_council_stream in sequence", async () => {
   const cb = createControllableBrain();
   const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-ext-"));
   writeTestConfig(testHome, [{ id: "claude", provider: "anthropic", model: "mock-claude" }]);
@@ -754,8 +754,8 @@ await test("E2E13: spawn → status → read_stream in sequence", async () => {
     const statusText = getConversationText(orchCall4.request);
     assert(statusText.includes("done"), "status shows done");
 
-    // Step 3: read_stream
-    orchCall4.respond(toolCall("read_stream", { memberId: "claude" }));
+    // Step 3: read_council_stream
+    orchCall4.respond(toolCall("read_council_stream", { memberId: "claude" }));
 
     const orchCall5 = await cb.waitForCall({ model: "mock" }, 10000);
     const streamText = getConversationText(orchCall5.request);

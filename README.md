@@ -25,7 +25,7 @@ This registers these pi tools:
 - `council_followup`
 - `cancel_council`
 - `council_status`
-- `read_stream`
+- `read_council_stream`
 
 ### MCP server
 
@@ -116,10 +116,10 @@ spawn_council({ question: "Assess this incident", profile: "deep", label: "incid
 council_followup({ type: "steer", message: "Also consider rollback risk" })
 cancel_council({ runId: "20260428-..." })
 council_status({ runId: "20260428-..." })
-read_stream({ runId: "20260428-...", memberId: "claude" })
+read_council_stream({ runId: "20260428-...", memberId: "claude" })
 ```
 
-`spawn_council` returns immediately in interactive pi sessions. Member results are delivered automatically as follow-up messages, and a final summary is sent when everyone finishes. Do not poll `council_status` or `read_stream` unless something appears stuck or you need to re-read a result.
+`spawn_council` returns immediately in interactive pi sessions. Member results are delivered automatically as follow-up messages, and a final summary is sent when everyone finishes. Do not poll `council_status` or `read_council_stream` unless something appears stuck or you need to re-read a result.
 
 ### MCP tools
 
@@ -127,7 +127,7 @@ read_stream({ runId: "20260428-...", memberId: "claude" })
 mcporter call pi-council.spawn_council --args '{"question":"Which migration plan is safest?"}'
 mcporter call pi-council.council_followup --args '{"type":"steer","message":"Also consider rollback risk"}'
 mcporter call pi-council.council_status runId='20260428-...'
-mcporter call pi-council.read_stream runId='20260428-...' memberId='claude'
+mcporter call pi-council.read_council_stream runId='20260428-...' memberId='claude'
 mcporter call pi-council.read_council_results --args '{"runId":"20260428-...","wait":true}'
 ```
 

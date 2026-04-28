@@ -285,6 +285,9 @@ function createAgentDir(gatewayUrl) {
   return dir;
 }
 
+const piContinuePath = path.resolve(__dirname, "..", "..", "pi-continue", "index.ts");
+const hasPiContinue = fs.existsSync(piContinuePath);
+
 const gw = await createGateway({ brain: () => text("unused"), port: 0, default: "allow" });
 const agentDir = createAgentDir(gw.url);
 const origAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -1379,7 +1382,7 @@ await test("T67: Member separates thinking from text output", async () => {
   assert(!status.thinking.includes("42"), "thinking excludes text answer");
 });
 
-await test("T68: Thinking-only response is treated as failed", async () => {
+await test("T68: Thinking-only response is treated as failed after one invisible continue", async () => {
   const cb = createControllableBrain();
   gw.setBrain(cb.brain);
 
@@ -1391,13 +1394,53 @@ await test("T68: Thinking-only response is treated as failed", async () => {
   const call = await cb.waitForCall(5000);
   call.respond([thinking("I have nothing to say out loud.")]);
 
+  if (hasPiContinue) {
+    const retry = await cb.waitForCall(5000);
+    assert(
+      !JSON.stringify(retry.request.messages ?? []).includes("/continue"),
+      "/continue command must not leak into model-visible context",
+    );
+    retry.respond([thinking("Still no visible answer.")]);
+  }
+
   await council.waitForCompletion();
   const m = council.getMember("claude").getStatus();
 
   assert(m.state === "failed", "thinking-only marked failed");
   assert(m.error === "Member completed with empty output", `error: ${m.error}`);
   assert(m.output === "", "output is empty");
-  assert(m.thinking.includes("nothing"), "thinking captured");
+  assert(m.thinking.length > 0, "thinking captured");
+});
+
+await test("T68b: Empty output with useful work recovers via pi-continue", async () => {
+  if (!hasPiContinue) {
+    process.stdout.write("    ⚠️  skipped: ../pi-continue/index.ts not found\n");
+    return;
+  }
+
+  const cb = createControllableBrain();
+  gw.setBrain(cb.brain);
+
+  const council = new Council("Recover empty output");
+  council.spawn({
+    models: [{ id: "claude", provider: "pi-mock", model: "mock" }],
+  });
+
+  const call = await cb.waitForCall(5000);
+  call.respond([thinking("I inspected the problem but forgot final text.")]);
+
+  const retry = await cb.waitForCall(5000);
+  const visibleContext = JSON.stringify(retry.request.messages ?? []);
+  assert(!visibleContext.includes("/continue"), "/continue command is invisible to model");
+  assert(!visibleContext.includes("pi-continue"), "pi-continue custom message is filtered out");
+  retry.respond(text("Recovered final answer."));
+
+  await council.waitForCompletion();
+  const m = council.getMember("claude").getStatus();
+
+  assert(m.state === "done", `state: ${m.state}, error: ${m.error}`);
+  assert(m.output.includes("Recovered final answer"), "uses retry output");
+  assert(m.thinking.includes("forgot final text"), "keeps original thinking for diagnostics");
 });
 
 await test("T69: Member with no thinking has empty thinking field", async () => {

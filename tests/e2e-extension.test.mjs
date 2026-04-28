@@ -164,7 +164,6 @@ await test("E2E1: spawn_council → members respond → results delivered", asyn
 
     // Wait for artifacts
     const runsDir = path.join(testHome, ".pi-council", "runs");
-    await new Promise(r => setTimeout(r, 1500));
 
     assert(fs.existsSync(runsDir), "runs directory exists");
     const runs = fs.readdirSync(runsDir);
@@ -220,7 +219,7 @@ await test("E2E2: spawn_council with model filter spawns subset", async () => {
     // Verify no GPT call
     let gotGpt = false;
     try {
-      await cb.waitForCall({ model: "mock-gpt" }, 2000);
+      await cb.waitForCall({ model: "mock-gpt" }, 250);
       gotGpt = true;
     } catch { /* expected timeout */ }
     assert(!gotGpt, "GPT was not spawned");
@@ -229,7 +228,6 @@ await test("E2E2: spawn_council with model filter spawns subset", async () => {
     const orchCall3 = await cb.waitForCall({ model: "mock" }, 20000);
     orchCall3.respond(text("Got it — code is clean."));
 
-    await new Promise(r => setTimeout(r, 1500));
 
     const runsDir = path.join(testHome, ".pi-council", "runs");
     const runs = fs.readdirSync(runsDir);
@@ -291,7 +289,6 @@ await test("E2E3: council_status returns member info after completion", async ()
     assert(statusResult.includes("done"), "status shows done");
 
     orchCall4.respond(text("Status confirmed."));
-    await new Promise(r => setTimeout(r, 1000));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -344,7 +341,6 @@ await test("E2E4: read_stream returns member output after completion", async () 
     assert(streamResult.includes("CLAUDE"), "read_stream has member ID header");
 
     orchCall4.respond(text("Output received."));
-    await new Promise(r => setTimeout(r, 1000));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -391,7 +387,6 @@ await test("E2E5: read_stream for unknown member returns error", async () => {
     assert(result.includes("Error") || result.includes("Unknown"), "error for unknown member");
 
     orchCall4.respond(text("Got error."));
-    await new Promise(r => setTimeout(r, 1000));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -446,7 +441,6 @@ await test("E2E6: cancel_council on completed council returns gracefully", async
     );
 
     orchCall4.respond(text("Cancelled."));
-    await new Promise(r => setTimeout(r, 1000));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -506,7 +500,6 @@ await test("E2E7: council_followup on completed council returns gracefully", asy
     );
 
     orchCall4.respond(text("Follow-up sent."));
-    await new Promise(r => setTimeout(r, 1000));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -541,7 +534,7 @@ await test("E2E8: council_status with no council returns gracefully", async () =
     assert(result.includes("No active council"), "no council message");
 
     orchCall2.respond(text("No council found."));
-    await mock.drain(15000);
+    await mock.drain(1000);
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -570,7 +563,7 @@ await test("E2E9: cancel_council with no council returns gracefully", async () =
     assert(result.includes("No active council"), "no council message");
 
     orchCall2.respond(text("Nothing to cancel."));
-    await mock.drain(15000);
+    await mock.drain(1000);
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -599,7 +592,7 @@ await test("E2E10: read_stream with no council returns gracefully", async () => 
     assert(result.includes("No active council"), "no council message");
 
     orchCall2.respond(text("No council."));
-    await mock.drain(15000);
+    await mock.drain(1000);
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -630,7 +623,7 @@ await test("E2E11: council_followup with no council returns gracefully", async (
     assert(result.includes("No active council"), "no council message");
 
     orchCall2.respond(text("No council."));
-    await mock.drain(15000);
+    await mock.drain(1000);
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -677,7 +670,7 @@ await test("E2E12: Two sequential councils produce separate results", async () =
     // Turn 2
     const orchCall3 = await cb.waitForCall({ model: "mock" }, 20000);
     orchCall3.respond(text("First council done."));
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 100));
 
     // --- Second council ---
     await mock.prompt("Second question.");
@@ -700,7 +693,7 @@ await test("E2E12: Two sequential councils produce separate results", async () =
 
     const orchCall6 = await cb.waitForCall({ model: "mock" }, 20000);
     orchCall6.respond(text("Second council done."));
-    await new Promise(r => setTimeout(r, 1500));
+    await mock.drain(1000);
 
     // Verify two separate runs
     const runsDir = path.join(testHome, ".pi-council", "runs");
@@ -769,7 +762,6 @@ await test("E2E13: spawn → status → read_stream in sequence", async () => {
     assert(streamText.includes("Chain test response"), "stream has member output");
 
     orchCall5.respond(text("All done."));
-    await new Promise(r => setTimeout(r, 1000));
   } finally {
     await mock.close();
     fs.rmSync(testHome, { recursive: true, force: true });
@@ -847,7 +839,6 @@ await test("E2E14: Three concurrent councils show as separate widget rows", asyn
 
     // All 3 councils are running now. Pause to let UI update.
     orch4.respond(text("All three councils spawned."));
-    await new Promise(r => setTimeout(r, 1000));
 
     // --- Verify the widget shows all 3 councils as separate rows ---
     // The widget key should be "pi-council" with 3 lines
@@ -873,15 +864,14 @@ await test("E2E14: Three concurrent councils show as separate widget rows", asyn
 
     // There may be more turns from the other 2 councils completing
     try {
-      const extra1 = await cb.waitForCall({ model: "mock" }, 5000);
+      const extra1 = await cb.waitForCall({ model: "mock" }, 250);
       extra1.respond(text("Done."));
     } catch { /* may not get more turns */ }
     try {
-      const extra2 = await cb.waitForCall({ model: "mock" }, 5000);
+      const extra2 = await cb.waitForCall({ model: "mock" }, 250);
       extra2.respond(text("Done."));
     } catch { /* may not get more turns */ }
 
-    await new Promise(r => setTimeout(r, 1000));
 
     // After all councils complete, widget should be cleared
     const finalWidgets = mock.widgets.filter(w => w.key === "pi-council");

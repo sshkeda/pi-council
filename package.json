@@ -56,7 +56,7 @@
     "test:profiles": "npm run build && node tests/profiles.test.mjs",
     "test:integration": "npm run build && node tests/integration.test.mjs",
     "test:live": "npm run build && node tests/live.test.mjs",
-    "test:e2e": "npm run build && node tests/e2e-extension.test.mjs && node tests/e2e-mcp.test.mjs",
+    "test:e2e": "npm run build && node tests/run-e2e.mjs",
     "test:e2e:ext": "npm run build && node tests/e2e-extension.test.mjs",
     "test:e2e:mcp": "npm run build && node tests/e2e-mcp.test.mjs",
     "test:all": "npm run build && node tests/council.test.mjs && node tests/profiles.test.mjs && node tests/integration.test.mjs && node tests/e2e-extension.test.mjs && node tests/e2e-mcp.test.mjs"

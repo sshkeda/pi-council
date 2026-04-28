@@ -346,18 +346,18 @@ export class CouncilMember {
   }
 
   /**
-   * Whether this member has produced a result (done, failed, cancelled, timed_out).
+   * Whether this member has produced a result (done, failed, or cancelled).
    * A "done" member has a result but its process may still be alive.
    */
   hasResult(): boolean {
-    return this.state === "done" || this.state === "failed" || this.state === "cancelled" || this.state === "timed_out";
+    return this.state === "done" || this.state === "failed" || this.state === "cancelled";
   }
 
   /**
    * Whether this member's process has fully exited.
    */
   isDone(): boolean {
-    return this.state === "failed" || this.state === "cancelled" || this.state === "timed_out";
+    return this.state === "failed" || this.state === "cancelled";
   }
 
   /**

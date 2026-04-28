@@ -8,12 +8,6 @@ export interface ModelSpec {
   model: string;
 }
 
-export interface Profile {
-  name: string;
-  models: ModelSpec[];
-  systemPrompt?: string;
-}
-
 export interface SpawnOptions {
   /** Models to spawn */
   models: ModelSpec[];
@@ -38,8 +32,7 @@ export type MemberState =
   | "running"
   | "done"
   | "failed"
-  | "cancelled"
-  | "timed_out";
+  | "cancelled";
 
 export interface MemberStatus {
   id: string;

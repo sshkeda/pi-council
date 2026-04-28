@@ -201,7 +201,7 @@ export class Council {
       startedAt: this.startedAt,
       members: memberStatuses,
       finishedCount: memberStatuses.filter((m) =>
-        m.state === "done" || m.state === "failed" || m.state === "cancelled" || m.state === "timed_out",
+        m.state === "done" || m.state === "failed" || m.state === "cancelled",
       ).length,
       isComplete: this.isComplete(),
     };

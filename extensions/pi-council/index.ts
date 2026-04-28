@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Council, CouncilRegistry } from "../../src/core/council.js";
 import { loadConfig, resolveProfile, resolveModelIds } from "../../src/core/config.js";
-import type { ModelSpec, CouncilEvent, MemberState } from "../../src/core/types.js";
+import type { CouncilEvent, MemberState } from "../../src/core/types.js";
 
 
 type WidgetUiCtx = {
@@ -143,7 +143,7 @@ export default function (pi: ExtensionAPI) {
       const rawMembers = Array.isArray(input.members) ? input.members as Array<Record<string, unknown>> : [{ id: "claude", state: "running" }];
       const members = rawMembers.map((m) => ({
         id: String(m.id ?? "claude"),
-        state: (m.state === "done" || m.state === "failed" || m.state === "cancelled" || m.state === "timed_out" || m.state === "running" || m.state === "spawning") ? m.state : "running",
+        state: (m.state === "done" || m.state === "failed" || m.state === "cancelled" || m.state === "running" || m.state === "spawning") ? m.state : "running",
       })) as Array<{ id: string; state: MemberState }>;
 
       uiState.setMockCouncilRow({
